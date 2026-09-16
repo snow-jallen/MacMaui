@@ -155,6 +155,14 @@ def main():
         "branchStartCondition": {
             "source": {"isAllMatch": False,
                        "patterns": [{"pattern": BRANCH, "isPrefix": False}]},
+            # Skip a push only when every changed file is documentation. Stated this way round
+            # rather than listing the source folders that should build, so adding a project can
+            # never silently stop triggering iOS builds. An iOS build costs about ten minutes
+            # of the Xcode Cloud allowance, and README edits were spending it.
+            "filesAndFoldersRule": {
+                "mode": "DO_NOT_START_IF_ALL_FILES_MATCH",
+                "matchers": [{"directory": None, "fileExtension": "md", "fileName": None}],
+            },
             "autoCancel": True,
         },
         "actions": [
