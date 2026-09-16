@@ -1,7 +1,14 @@
 # Release pipeline: deploy the API to Azure App Service, then build the Android APK and the
 # Windows app against that API and publish both as a GitHub release.
 #
-# Runs when a tag such as v1.2.3 is pushed, or by hand from the Actions tab.
+# Runs on every push to main, or by hand from the Actions tab. There is no tagging step: the
+# version is 1.0.<run number> and the release job creates that tag for you, so main is always
+# deployed and every build keeps a permanent download link.
+#
+# Documentation-only pushes are skipped, matching the same rule on the Xcode Cloud workflow.
+# The filter is deliberately only about docs. Every other push builds all three artifacts,
+# because a release that contains an APK but a stale Windows zip would be worse than a
+# release that took four extra minutes.
 #
 # One-time setup: scripts/azure-bootstrap.ps1 creates the Azure resources and stores the
 # secrets and variables this file reads. See README.md.
@@ -18,11 +25,13 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Display version, e.g. 1.2.3. Default: the tag, or 0.0.<run number>.'
+        description: 'Display version, e.g. 1.2.3. Default: 1.0.<run number>.'
         required: false
         type: string
 
@@ -50,12 +59,10 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            display="${GITHUB_REF_NAME:1}"
-          elif [[ -n "$INPUT_VERSION" ]]; then
+          if [[ -n "$INPUT_VERSION" ]]; then
             display="$INPUT_VERSION"
           else
-            display="0.0.$GITHUB_RUN_NUMBER"
+            display="1.0.$GITHUB_RUN_NUMBER"
           fi
           {
             echo "display=$display"
@@ -262,14 +269,19 @@ jobs:
           sha256sum -- * > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      # The tag does not exist yet: this action creates it at the commit being built, which is
+      # what removes the manual `git tag` step.
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: MacMaui ${{ needs.version.outputs.display }}
           generate_release_notes: true
+          make_latest: true
           files: dist/*
           body: |
-            Build ${{ needs.version.outputs.build }}. Every client in this release talks to the API at ${{ vars.API_BASE_URL }}.
+            Built from `${{ github.sha }}` on ${{ github.ref_name }}.
+            Every client in this release talks to the API at ${{ vars.API_BASE_URL }}.
 
             | Download | Install |
             |---|---|

@@ -41,9 +41,10 @@ dotnet publish ... -p:ApiBaseUrl=https://macmaui-api.azurewebsites.net
 The csproj turns that property into an assembly metadata attribute, and `MauiProgram.cs`
 registers it as the service discovery entry for `apiservice` before the Aspire defaults run.
 The rest of the app is unchanged: it still calls `https+http://apiservice`, and inside Aspire
-the injected environment still wins. All three platform builds receive the same value, the
-`API_BASE_URL` repository variable (GitHub Actions) or workflow environment variable
-(Xcode Cloud).
+the injected environment still wins. All three platform builds receive the same address:
+GitHub Actions passes the `API_BASE_URL` repository variable, and Xcode Cloud reads the
+committed `XcodeCloud/api-base-url.txt`, because the App Store Connect API cannot write
+Xcode Cloud environment variables.
 
 ## Release pipeline
 
@@ -52,12 +53,12 @@ group `macmaui-rg`, faculty subscription), and releases are at
 <https://github.com/snow-jallen/MacMaui/releases>.
 
 ```
-git tag v1.2.3 && git push --tags
+git push origin main
         │
         ├── GitHub Actions (release.yml)
         │     ├── deploy-api  → Azure App Service       (.NET 10, Linux)
-        │     ├── android     → MacMaui.Mobile-1.2.3-android.apk
-        │     ├── windows     → MacMaui.Mobile-1.2.3-windows-x64.zip
+        │     ├── android     → MacMaui.Mobile-1.0.42-android.apk
+        │     ├── windows     → MacMaui.Mobile-1.0.42-windows-x64.zip
         │     └── release     → GitHub release with both files + SHA256SUMS
         │
         └── Xcode Cloud (XcodeCloud/)   [triggered by any push to main]
@@ -68,10 +69,14 @@ The iOS side is driven by `scripts/xcode-cloud-workflow.py`, which creates or re
 Xcode Cloud workflow through the App Store Connect API and can start a build. Only the initial
 product registration needed Xcode; everything since is scripted.
 
-Versions: the display version is the tag without its `v`; the build number is the GitHub run
-number (Android `versionCode`, Windows file version) or the Xcode Cloud build number (iOS
-`CFBundleVersion`). Running the workflow by hand without a tag produces `0.0.<run number>`
-and creates that tag.
+Every push to `main` deploys. There is nothing to tag by hand: the version is
+`1.0.<GitHub run number>`, and the release job creates that tag at the commit it built, so each
+build keeps a permanent download link. The run number is also the Android `versionCode` and the
+Windows file version; iOS uses the Xcode Cloud build number for `CFBundleVersion`.
+
+Pushes that touch only Markdown are skipped by both pipelines, so editing a README costs
+nothing. Any other push builds all three artifacts, because a release holding a fresh APK
+beside a stale Windows zip would be worse than one that took four extra minutes.
 
 ### One-time setup
 
@@ -92,21 +97,22 @@ and creates that tag.
    `AZURE_*` secrets plus the `AZURE_WEBAPP_NAME`, `AZURE_RESOURCE_GROUP`, and `API_BASE_URL`
    variables on the repository. If your tenant will not let you create app registrations,
    run it with `-UsePublishProfile` instead. Pass `-Sku B1` for an always-warm tier.
-3. **Set up Xcode Cloud** as described in [XcodeCloud/README.md](XcodeCloud/README.md),
-   giving its workflow the `API_BASE_URL` the bootstrap script printed.
+3. **Set up Xcode Cloud** as described in [XcodeCloud/README.md](XcodeCloud/README.md). Its
+   workflow needs no API address of its own: that comes from the committed
+   `XcodeCloud/api-base-url.txt`.
 4. **Optional: a release keystore for Android.** Without one the APK carries the default
    debug signature, which installs fine but cannot be updated later by a Play Store build.
    To sign properly, add the secrets `ANDROID_KEYSTORE_BASE64` (the keystore file, base64),
    `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
 
-### Cutting a release
+### Releasing
 
 ```powershell
-git tag v1.0.0
-git push --tags
+git push origin main
 ```
 
-Or open **Actions > Release > Run workflow** and type a version.
+That is the whole procedure. To publish under a chosen version instead of `1.0.<run number>`,
+open **Actions > Release > Run workflow** and type one.
 
 ## Notes
 
