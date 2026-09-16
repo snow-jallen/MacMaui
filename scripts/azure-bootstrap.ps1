@@ -118,15 +118,25 @@ else {
         --role 'Website Contributor' `
         --scope "/subscriptions/$subId/resourceGroups/$ResourceGroup" -o none
 
-    $subject = "repo:${Repo}:environment:$Environment"
-    Write-Host "==> Federated credential for $subject"
-    $existing = (Invoke-Az ad app federated-credential list --id $appId --query "[?subject=='$subject'] | length(@)" -o tsv).Trim()
-    if ($existing -eq '0') {
+    # GitHub's OIDC subject comes in two spellings depending on the repository's token settings:
+    # repo:owner/name:environment:X and repo:owner@<ownerId>/name@<repoId>:environment:X.
+    # Entra matches the subject literally, so register both.
+    $owner, $name = $Repo -split '/'
+    $ownerId, $repoId = (& gh api "repos/$Repo" --jq '"\(.owner.id) \(.id)"').Trim() -split ' '
+    if ($LASTEXITCODE -ne 0 -or -not $repoId) { throw "gh api repos/$Repo failed" }
+    $credentials = @(
+        @{ name = "github-$Environment";     subject = "repo:${Repo}:environment:$Environment" }
+        @{ name = "github-$Environment-ids"; subject = "repo:${owner}@${ownerId}/${name}@${repoId}:environment:$Environment" }
+    )
+    foreach ($credential in $credentials) {
+        Write-Host "==> Federated credential for $($credential.subject)"
+        $existing = (Invoke-Az ad app federated-credential list --id $appId --query "[?subject=='$($credential.subject)'] | length(@)" -o tsv).Trim()
+        if ($existing -ne '0') { continue }
         $paramsFile = Join-Path ([IO.Path]::GetTempPath()) "macmaui-fic-$([guid]::NewGuid()).json"
         @{
-            name      = "github-$Environment"
+            name      = $credential.name
             issuer    = 'https://token.actions.githubusercontent.com'
-            subject   = $subject
+            subject   = $credential.subject
             audiences = @('api://AzureADTokenExchange')
         } | ConvertTo-Json | Set-Content -Path $paramsFile -Encoding utf8
         try {
