@@ -1,0 +1,27 @@
+# Temporary: what does the windows-latest image ship for .NET and MAUI?
+name: Probe runner image
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+      - name: Preinstalled .NET
+        shell: pwsh
+        run: |
+          Write-Host "== dotnet --version =="; dotnet --version
+          Write-Host "== SDKs =="; dotnet --list-sdks
+          Write-Host "== DOTNET_ROOT / where =="; $env:DOTNET_ROOT; (Get-Command dotnet).Source
+          Write-Host "== workloads =="; dotnet workload list
+          Write-Host "== workload search maui-windows =="; dotnet workload search maui-windows
+          Write-Host "== VS installs =="
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -all -products * -format json | ConvertFrom-Json | Select-Object displayName, installationVersion, installationPath | Format-List
+          Write-Host "== dotnet sdk-manifests =="
+          Get-ChildItem "$((Get-Command dotnet).Source | Split-Path)\sdk-manifests" -Recurse -Directory -Depth 1 | Select-Object -ExpandProperty FullName
+          Write-Host "== time a workload install (if needed) =="
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          dotnet workload install maui-windows
+          Write-Host "workload install took $([int]$sw.Elapsed.TotalSeconds)s"
+          dotnet workload list
