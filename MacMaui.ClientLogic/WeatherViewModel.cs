@@ -34,23 +34,30 @@ public partial class WeatherViewModel(IWeatherApiClient weatherApi, Telemetry te
 		// API service as a single distributed trace.
 		using var activity = telemetry.ActivitySource.StartActivity("GetWeather", ActivityKind.Client);
 
+		// Captured before the call, not after it. Set inside the success branch this would be
+		// missing from exactly the traces worth investigating, and the day count is the first
+		// thing you would ask about a request that failed or was slow.
+		var days = Days;
+		var daysTag = new KeyValuePair<string, object?>("days", days);
+		activity?.SetTag("weather.days_requested", days);
+
 		IsBusy = true;
-		Status = $"Asking apiservice for {Days} days...";
+		Status = $"Asking apiservice for {days} days...";
 		Forecasts.Clear();
 
 		var stopwatch = Stopwatch.StartNew();
 		try
 		{
-			var forecasts = await weatherApi.GetWeatherAsync(Days, cancellationToken);
+			var forecasts = await weatherApi.GetWeatherAsync(days, cancellationToken);
 
 			foreach (var forecast in forecasts)
 			{
 				Forecasts.Add(forecast);
 			}
 
-			activity?.SetTag("weather.days_requested", Days);
 			activity?.SetTag("weather.forecast_count", forecasts.Length);
-			telemetry.WeatherRequests.Add(1, new KeyValuePair<string, object?>("outcome", "success"));
+			telemetry.WeatherRequests.Add(1, daysTag,
+				new KeyValuePair<string, object?>("outcome", "success"));
 
 			Status = $"{forecasts.Length} forecasts at {DateTime.Now:T}";
 		}
@@ -58,14 +65,17 @@ public partial class WeatherViewModel(IWeatherApiClient weatherApi, Telemetry te
 		{
 			activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
 			activity?.SetTag("error.type", ex.GetType().FullName);
-			telemetry.WeatherRequests.Add(1, new KeyValuePair<string, object?>("outcome", "failure"));
+			telemetry.WeatherRequests.Add(1, daysTag,
+				new KeyValuePair<string, object?>("outcome", "failure"));
 
 			Status = $"Request failed: {ex.Message}";
 		}
 		finally
 		{
 			stopwatch.Stop();
-			telemetry.WeatherRequestDuration.Record(stopwatch.Elapsed.TotalMilliseconds);
+			// Tagged so latency can be read against request size. Cardinality is bounded by the
+			// stepper's range, so this stays a handful of series rather than one per value seen.
+			telemetry.WeatherRequestDuration.Record(stopwatch.Elapsed.TotalMilliseconds, daysTag);
 			IsBusy = false;
 		}
 	}

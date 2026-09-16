@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MacMaui.ApiService;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -40,6 +41,11 @@ app.MapGet("/weatherforecast", (ForecastCache cache, int days = 5) =>
             ["days"] = [$"days must be between 1 and {MaxDays}."]
         });
     }
+
+    // On the server the day count only exists inside the query string, which means parsing URLs
+    // to chart it and no way at all to group the built-in duration metrics by it. Recording it on
+    // the current request span puts it in customDimensions, where it can be grouped directly.
+    Activity.Current?.SetTag("weather.days_requested", days);
 
     return Results.Ok(cache.GetForecast(days));
 })

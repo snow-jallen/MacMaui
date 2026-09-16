@@ -31,7 +31,7 @@ az monitor app-insights component show --app macmaui-insights -g macmaui-rg --qu
 
 | Aspire dashboard | Application Insights | What to expect |
 |---|---|---|
-| **Traces** | **Investigate > Transaction search**, then click a result for the end-to-end view | A request from the app to the API appears as one operation spanning both, exactly as in the dashboard |
+| **Traces** | **Investigate > Transaction search**, then click a result for the end-to-end view | One press of Get Weather appears as a `GetWeather` span from the app, the outgoing HTTP call, and the API's handling of it, in a single operation |
 | **Structured logs** | **Monitoring > Logs**, query the `traces` table | Your `ILogger` output, with scopes and structured properties preserved |
 | **Metrics** | **Monitoring > Metrics**, metric namespace *azure.applicationinsights* | The custom counter and histogram from `Telemetry.cs` appear here |
 | **Resources** graph | **Investigate > Application map** | API and client shown as nodes with call volumes and failure rates |
@@ -68,26 +68,44 @@ union traces, dependencies, requests, exceptions
 Grab an `operation_Id` from any row above. This is the query equivalent of clicking a trace in the
 Aspire dashboard, showing the button press, the outgoing HTTP call and the API's handling together.
 
-**The app's own counter**
+**The app's own counter, split by outcome and by how many days were asked for**
 
 ```kusto
 customMetrics
 | where name == "macmaui.mobile.weather_requests"
-| summarize requests = sum(valueSum) by tostring(customDimensions.outcome), bin(timestamp, 5m)
-| render timechart
+| summarize requests = sum(valueSum)
+    by outcome = tostring(customDimensions.outcome), days = toint(customDimensions.days)
+| order by days asc
 ```
 
-That is the counter from `MacMaui.ClientLogic/Telemetry.cs`, tagged with `outcome` of `success` or
-`failure`.
+That is the counter from `MacMaui.ClientLogic/Telemetry.cs`. Both tags are recorded on every
+press, including failed ones, so a failure never loses the day count.
 
 **How long requests take, from the client's point of view**
 
 ```kusto
 customMetrics
 | where name == "macmaui.mobile.weather_request.duration"
-| summarize avg = sum(valueSum) / sum(valueCount), p95 = percentile(valueMax, 95) by bin(timestamp, 5m)
-| render timechart
+| summarize avg = sum(valueSum) / sum(valueCount) by days = toint(customDimensions.days)
+| order by days asc
+| render columnchart
 ```
+
+Grouping by `days` is the point: it answers whether asking for more days actually costs the user
+anything, which with a warm server-side cache it largely should not.
+
+**What the server saw, by day count**
+
+```kusto
+requests
+| where name has "weatherforecast"
+| extend days = toint(customDimensions["weather.days_requested"])
+| summarize calls = count(), avgMs = avg(duration) by days, resultCode
+| order by days asc
+```
+
+The day count is recorded as a span attribute rather than being left to dig out of the query
+string, so it can be grouped directly.
 
 **Which app versions are in the wild**
 

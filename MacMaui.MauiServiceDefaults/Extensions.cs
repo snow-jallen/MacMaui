@@ -1,4 +1,5 @@
 ﻿using Azure.Monitor.OpenTelemetry.Exporter;
+using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -6,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using OpenTelemetry;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using System.Text.RegularExpressions;
 
@@ -57,6 +59,12 @@ public static class Extensions
         });
 
         builder.Services.AddOpenTelemetry()
+            // Name the client. Without this every signal arrives labelled "unknown_service:dotnet",
+            // which is unhelpful next to the API, whose name App Service supplies. The version
+            // comes along too, so telemetry can be grouped by which release someone is running.
+            .ConfigureResource(resource => resource.AddService(
+                serviceName: Assembly.GetEntryAssembly()?.GetName().Name ?? "MacMaui.Mobile",
+                serviceVersion: Assembly.GetEntryAssembly()?.GetName().Version?.ToString()))
             .WithMetrics(metrics =>
             {
                 // Uncomment the following line to enable reporting metrics coming from the .NET MAUI SDK, this might cause a lot of added telemetry
