@@ -102,18 +102,20 @@ def main():
         if not os.environ.get(var):
             die(var + " is not set")
 
+    # Xcode names the product after the scheme or the app, so match loosely rather than
+    # insisting on one spelling: MacMaui, MacMaui.Mobile and MacMauiCloud all qualify.
     product = find(
         "/v1/ciProducts?limit=200",
-        lambda d: d["attributes"].get("name") == PRODUCT_NAME,
+        lambda d: PRODUCT_NAME.lower() in (d["attributes"].get("name") or "").lower(),
         "Xcode Cloud products",
     )
     if not product:
         die(
-            "no Xcode Cloud product named '%s'. Create it once in Xcode: open %s on a Mac, "
-            "then Product > Xcode Cloud > Create Workflow. This script configures it afterwards."
-            % (PRODUCT_NAME, CONTAINER_FILE_PATH)
+            "no Xcode Cloud product whose name contains '%s'. Create it once in Xcode: open %s "
+            "on a Mac, then Product > Xcode Cloud > Create Workflow. This script configures it "
+            "afterwards." % (PRODUCT_NAME, CONTAINER_FILE_PATH)
         )
-    print("product      " + product["id"])
+    print("product      %s (%s)" % (product["id"], product["attributes"].get("name")))
 
     repo = find(
         "/v1/scmRepositories?limit=200",
