@@ -60,9 +60,13 @@ git tag v1.2.3 && git push --tags
         │     ├── windows     → MacMaui.Mobile-1.2.3-windows-x64.zip
         │     └── release     → GitHub release with both files + SHA256SUMS
         │
-        └── Xcode Cloud (XcodeCloud/)
+        └── Xcode Cloud (XcodeCloud/)   [triggered by any push to main]
               └── archive     → TestFlight
 ```
+
+The iOS side is driven by `scripts/xcode-cloud-workflow.py`, which creates or rewrites the
+Xcode Cloud workflow through the App Store Connect API and can start a build. Only the initial
+product registration needed Xcode; everything since is scripted.
 
 Versions: the display version is the tag without its `v`; the build number is the GitHub run
 number (Android `versionCode`, Windows file version) or the Xcode Cloud build number (iOS

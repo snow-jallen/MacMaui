@@ -1,5 +1,18 @@
 # Building the iOS app with Xcode Cloud
 
+**Current state: working.** The product and the `TestFlight` workflow exist, and build 4
+reached TestFlight on 2026-09-16. Pushing to `main` builds and distributes to the Internal
+group. The setup steps below are kept for reference and for rebuilding this from scratch.
+
+To change the workflow, edit `scripts/xcode-cloud-workflow.py` and run it; it rewrites the
+workflow in place through the App Store Connect API. Do not hand-edit it in App Store Connect,
+or the next run of the script will overwrite your change.
+
+```bash
+ASC_KEY_ID=... ASC_ISSUER_ID=... ASC_KEY_PATH=/path/AuthKey_XXXXXXXXXX.p8 \
+    python scripts/xcode-cloud-workflow.py --start-build
+```
+
 Xcode Cloud is the Mac. You develop on Windows, push to GitHub, and Apple's build machines
 compile the .NET MAUI iOS app, sign it, and put it on TestFlight. No Mac, no certificate
 export, no provisioning profile juggling.
@@ -45,16 +58,22 @@ You need an Apple Developer Program membership and the repository on GitHub.
    it asks you to grant Xcode Cloud access to the GitHub repository in a browser. Afterwards,
    `scripts/xcode-cloud-workflow.py` configures the workflow properly through the App Store
    Connect API, and App Store Connect's Xcode Cloud tab can edit it too.
-3. **Configure the workflow** (in the Xcode assistant, or afterwards in App Store Connect).
-   - *Start conditions:* branch changes on `main`, and tag changes matching `v*` if you want
-     tags to set the display version.
-   - *Environment:* pick the Xcode version the .NET iOS workload expects. .NET 10's iOS
-     workload targets Xcode 26; a newer Xcode produces a warning, an older one fails the
-     build. Add an environment variable `API_BASE_URL` with the value printed by
-     `scripts/azure-bootstrap.ps1` (for example `https://macmaui-api.azurewebsites.net`).
-   - *Actions:* one **Archive** action, scheme `MacMaui.Mobile`, platform iOS,
-     deployment preparation **TestFlight and App Store**.
-   - *Post-actions:* **TestFlight Internal Testing**, pick a tester group.
+3. **Configure the workflow.** Accept whatever the Xcode assistant proposes, then run
+   `scripts/xcode-cloud-workflow.py`, which adopts that workflow and sets everything below
+   through the API. Pinning the Xcode version is not optional: the assistant defaults to
+   "Latest Release", and a build on a newer Xcode than the .NET iOS workload expects fails with
+   *"This version of .NET for iOS requires Xcode 26.6. The current version of Xcode is 27.0."*
+
+   For reference, the settings the script applies, should you ever set them by hand:
+   - *Start conditions:* branch changes on `main`.
+   - *Environment:* **Xcode 26.6**, macOS "Latest Release". The two must be a compatible pair,
+     which is why the script picks the macOS version from the Xcode version's own list.
+     There is no `API_BASE_URL` variable to set: the API address comes from the committed
+     `XcodeCloud/api-base-url.txt`, because the App Store Connect API cannot write Xcode Cloud
+     environment variables.
+   - *Actions:* one **Archive** action, scheme `MacMaui.Mobile`, platform iOS, with
+     `buildDistributionAudience` set to `INTERNAL_ONLY`, which is what sends it to TestFlight.
+   - Assign the build to an internal tester group once; the script can do this too.
 4. Push. The first build takes roughly 15 to 25 minutes, most of it installing the .NET SDK
    and workload and AOT-compiling the app. Later builds are similar; Xcode Cloud does not
    persist tool installs between builds.
