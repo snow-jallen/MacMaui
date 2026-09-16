@@ -36,11 +36,15 @@ You need an Apple Developer Program membership and the repository on GitHub.
    `edu.snow.macmaui.mobile` (register it under Identifiers first if it is not offered). This
    must equal `<ApplicationId>` in the csproj; the post-clone script refuses to build if the
    wrapper project disagrees.
-2. **App Store Connect > your app > Xcode Cloud > Get Started.** Grant access to the GitHub
-   repository. Xcode Cloud scans it and finds `XcodeCloud/MacMauiCloud.xcodeproj` with the
-   shared scheme `MacMaui.Mobile`. Workflows can be created and edited entirely in App Store
-   Connect; Xcode is not required.
-3. **Create the workflow.**
+2. **Connect the repository from Xcode, once.** Apple requires the *first* workflow to be
+   created in Xcode; App Store Connect only shows documentation links until then. Any Mac
+   with Xcode 26 will do for this half hour (a lab Mac, a colleague's, or an hourly cloud Mac):
+   sign in to your Apple ID under Xcode > Settings > Accounts, clone the repo, open
+   `XcodeCloud/MacMauiCloud.xcodeproj`, choose Product > Xcode Cloud > Create Workflow, and
+   follow the assistant. It asks you to grant Xcode Cloud access to the GitHub repository in a
+   browser. After the first build finishes, everything else, including editing and creating
+   workflows, works in App Store Connect under the app's Xcode Cloud tab.
+3. **Configure the workflow** (in the Xcode assistant, or afterwards in App Store Connect).
    - *Start conditions:* branch changes on `main`, and tag changes matching `v*` if you want
      tags to set the display version.
    - *Environment:* pick the Xcode version the .NET iOS workload expects. .NET 10's iOS
