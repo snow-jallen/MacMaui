@@ -47,6 +47,10 @@ the injected environment still wins. All three platform builds receive the same 
 
 ## Release pipeline
 
+Current deployment: the API runs at <https://macmaui-api-jallen.azurewebsites.net> (resource
+group `macmaui-rg`, faculty subscription), and releases are at
+<https://github.com/snow-jallen/MacMaui/releases>.
+
 ```
 git tag v1.2.3 && git push --tags
         │
