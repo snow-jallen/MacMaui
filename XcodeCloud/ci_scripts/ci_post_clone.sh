@@ -53,9 +53,12 @@ esac
 log "Building $APP_ID version $DISPLAY_VERSION ($BUILD_NUMBER)"
 
 # --- API address. See MacMaui.Mobile.csproj (ApiBaseUrl) and MauiProgram.cs. ------------------
-API_BASE_URL="${API_BASE_URL:-}"
+# Read from the committed file rather than a workflow setting: the App Store Connect API cannot
+# set Xcode Cloud environment variables, so keeping the address in the repository is the only way
+# to configure a workflow entirely from a script. An environment variable still overrides it.
+API_BASE_URL="${API_BASE_URL:-$(cat "$REPO/XcodeCloud/api-base-url.txt" 2>/dev/null | tr -d '[:space:]')}"
 if [ -z "$API_BASE_URL" ]; then
-  echo "warning: API_BASE_URL is not set on this workflow; the app will build but cannot reach the API." >&2
+  echo "warning: no API base URL (XcodeCloud/api-base-url.txt is missing or empty); the app will build but cannot reach the API." >&2
 else
   log "API base URL: $API_BASE_URL"
 fi
