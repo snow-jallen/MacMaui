@@ -35,7 +35,9 @@ SCHEME = "MacMaui.Mobile"
 BRANCH = "main"
 # The .NET 10 iOS workload targets this Xcode; a newer one warns, an older one fails.
 XCODE_VERSION_NAME = "Xcode 26.6"
-MACOS_VERSION_NAME = "macOS Tahoe 26.6"
+# Pinning Xcode is what matters for the .NET workload; let macOS float to whatever pairs
+# with it, since Apple retires specific macOS builds from Xcode Cloud over time.
+MACOS_VERSION_NAME = "Latest Release"
 
 
 def token():
@@ -131,12 +133,15 @@ def main():
 
     xcode = find("/v1/ciXcodeVersions?limit=200",
                  lambda d: d["attributes"].get("name") == XCODE_VERSION_NAME, "Xcode versions")
-    macos = find("/v1/ciMacOsVersions?limit=200",
-                 lambda d: d["attributes"].get("name") == MACOS_VERSION_NAME, "macOS versions")
     if not xcode:
         die("Xcode version '%s' is not offered by Xcode Cloud" % XCODE_VERSION_NAME)
+    # Only certain macOS versions pair with a given Xcode; picking from the Xcode version's own
+    # list avoids "Xcode and MacOS versions are invalid" on the update.
+    macos = find("/v1/ciXcodeVersions/%s/macOsVersions" % xcode["id"],
+                 lambda d: d["attributes"].get("name") == MACOS_VERSION_NAME,
+                 "macOS versions for " + XCODE_VERSION_NAME)
     if not macos:
-        die("macOS version '%s' is not offered by Xcode Cloud" % MACOS_VERSION_NAME)
+        die("macOS version '%s' does not pair with %s" % (MACOS_VERSION_NAME, XCODE_VERSION_NAME))
     print("xcode        %s (%s)" % (xcode["id"], XCODE_VERSION_NAME))
     print("macos        %s (%s)" % (macos["id"], MACOS_VERSION_NAME))
 
@@ -173,17 +178,28 @@ def main():
         "macOsVersion": {"data": {"type": "ciMacOsVersions", "id": macos["id"]}},
     }
 
-    existing = find(
-        "/v1/ciProducts/%s/workflows?limit=200" % product["id"],
-        lambda d: d["attributes"].get("name") == WORKFLOW_NAME,
-        "workflows",
-    )
+    workflows_path = "/v1/ciProducts/%s/workflows?limit=200" % product["id"]
+    existing = find(workflows_path, lambda d: d["attributes"].get("name") == WORKFLOW_NAME,
+                    "workflows")
+    if not existing:
+        # Xcode's onboarding assistant leaves behind a workflow called "Default". Adopt it
+        # rather than adding a second one, or both would build every push to main.
+        status, body = call(workflows_path)
+        candidates = body.get("data", []) if status == 200 else []
+        if len(candidates) == 1:
+            existing = candidates[0]
+            print("adopting the workflow Xcode created: '%s'"
+                  % existing["attributes"].get("name"))
 
     if existing:
         status, body = call(
             "/v1/ciWorkflows/" + existing["id"],
             "PATCH",
-            {"data": {"type": "ciWorkflows", "id": existing["id"], "attributes": attributes}},
+            {"data": {"type": "ciWorkflows", "id": existing["id"], "attributes": attributes,
+                      "relationships": {
+                          "xcodeVersion": relationships["xcodeVersion"],
+                          "macOsVersion": relationships["macOsVersion"],
+                      }}},
         )
         if status not in (200, 204):
             die("could not update the workflow", body)
