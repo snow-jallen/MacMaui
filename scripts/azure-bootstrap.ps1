@@ -50,12 +50,15 @@ $ErrorActionPreference = 'Stop'
 function Invoke-Az {
     $out = & az @args
     if ($LASTEXITCODE -ne 0) { throw "az $($args -join ' ') failed" }
-    $out
+    # Always a string, never $null, so callers can .Trim() an empty query result.
+    ($out -join "`n")
 }
 
 Write-Host "==> Azure subscription $Subscription"
-Invoke-Az account set --subscription $Subscription | Out-Null
-$subId = (Invoke-Az account show --query id -o tsv).Trim()
+# A name can match several subscriptions (a disabled twin is common); pick the enabled one.
+$subId = (Invoke-Az account list --all --query "[?(name=='$Subscription' || id=='$Subscription') && state=='Enabled'].id | [0]" -o tsv).Trim()
+if (-not $subId) { throw "No enabled subscription named or with id '$Subscription'. Run 'az login' or pass -Subscription." }
+Invoke-Az account set --subscription $subId | Out-Null
 $tenantId = (Invoke-Az account show --query tenantId -o tsv).Trim()
 
 if (-not $Repo) {
@@ -148,3 +151,4 @@ Write-Host ''
 Write-Host 'Next:'
 Write-Host "  1. Xcode Cloud workflow > Environment: add API_BASE_URL = $apiBaseUrl"
 Write-Host '  2. git tag v1.0.0 && git push --tags     (or run the Release workflow from the Actions tab)'
+exit 0   # the optional `gh secret delete` above may have set a nonzero exit code
