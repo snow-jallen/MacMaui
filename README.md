@@ -58,8 +58,8 @@ git push origin main
         ├── GitHub Actions (release.yml)
         │     ├── deploy-api  → Azure App Service       (.NET 10, Linux)
         │     ├── android     → MacMaui.Mobile-1.0.42-android.apk
-        │     ├── windows     → MacMaui.Mobile-1.0.42-windows-x64.zip
-        │     └── release     → GitHub release with both files + SHA256SUMS
+        │     ├── windows     → MacMaui-1.0.42-windows-Setup.exe + update feed
+        │     └── release     → GitHub release with every artifact + SHA256SUMS
         │
         └── Xcode Cloud (XcodeCloud/)   [triggered by any push to main]
               └── archive     → TestFlight
@@ -76,7 +76,7 @@ Windows file version; iOS uses the Xcode Cloud build number for `CFBundleVersion
 
 Pushes that touch only Markdown are skipped by both pipelines, so editing a README costs
 nothing. Any other push builds all three artifacts, because a release holding a fresh APK
-beside a stale Windows zip would be worse than one that took four extra minutes.
+beside a stale Windows build would be worse than one that took four extra minutes.
 
 ### One-time setup
 
@@ -84,7 +84,8 @@ beside a stale Windows zip would be worse than one that took four extra minutes.
    ```powershell
    git add -A
    git commit -m "MacMaui: Aspire + MAUI with Xcode Cloud and Azure release pipeline"
-   gh repo create snow-jallen/MacMaui --private --source . --push
+   # Public, because the Windows app reads its update feed from this repo's releases.
+   gh repo create snow-jallen/MacMaui --public --source . --push
    ```
 2. **Create the Azure resources and wire GitHub to them.** Uses the faculty subscription by
    default; pass `-Subscription` to choose another.
