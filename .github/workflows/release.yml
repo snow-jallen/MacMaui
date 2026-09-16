@@ -269,9 +269,16 @@ jobs:
       - name: Publish unpackaged Windows app
         shell: pwsh
         run: |
-          # Self-contained and unpackaged: a folder with MacMaui.Mobile.exe that runs on 64-bit
-          # Windows 10 (1809+) or 11 with nothing installed. RuntimeIdentifierOverride is how the
-          # MAUI SDK takes the RID without pushing it onto the referenced class libraries.
+          # Unpackaged, and framework-dependent on .NET: the Velopack installer below declares
+          # net10-x64-desktop and fetches that runtime if the machine lacks it, which halves the
+          # download (53 MB rather than 97 MB) and the update packages with it.
+          #
+          # WindowsAppSDKSelfContained stays true on purpose. Velopack can install the .NET
+          # runtime but has no installer for the Windows App SDK, which MAUI also needs, so that
+          # one still travels with the app.
+          #
+          # RuntimeIdentifierOverride is how the MAUI SDK takes the RID without pushing it onto
+          # the referenced class libraries.
           dotnet publish "$env:MOBILE_PROJECT" `
             --framework net10.0-windows10.0.19041.0 `
             --configuration Release `
@@ -279,7 +286,7 @@ jobs:
             -p:RuntimeIdentifierOverride=win-x64 `
             -p:WindowsPackageType=None `
             -p:WindowsAppSDKSelfContained=true `
-            -p:SelfContained=true `
+            -p:SelfContained=false `
             -p:ApiBaseUrl="$env:API_BASE_URL" `
             -p:ApplicationDisplayVersion="$env:DISPLAY_VERSION" `
             -p:ApplicationVersion="$env:BUILD_NUMBER" `
@@ -315,6 +322,7 @@ jobs:
             --mainExe MacMaui.Mobile.exe `
             --packTitle "MacMaui" `
             --packAuthors "Snow College" `
+            --framework net10.0-x64-desktop `
             --outputDir "$env:RUNNER_TEMP/feed"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

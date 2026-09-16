@@ -116,8 +116,17 @@ open **Actions > Release > Run workflow** and type one.
 
 ## Notes
 
-- The Windows download is a zip of a self-contained, unpackaged app: extract it and run
-  `MacMaui.Mobile.exe`. MAUI Windows apps are folders, not single executables.
+- The Windows download is a Velopack installer. Run it once and the app updates itself from
+  this repository's releases: it checks on startup and offers the new version. That is why the
+  repository is public, since a private release feed would mean shipping a GitHub token inside
+  the app. .NET MAUI has no ClickOnce equivalent, so without Velopack the desktop build could
+  only be replaced by hand.
+- The Windows build is framework-dependent, and the installer fetches the .NET 10 desktop
+  runtime when a machine lacks it. That halves the download to about 53 MB. The Windows App SDK
+  still travels inside the app, because Velopack can install the .NET runtime but has no
+  installer for the App SDK.
+- The installer is unsigned, so Windows SmartScreen warns on first run. Removing that warning
+  needs a code-signing certificate; `vpk pack` accepts signing parameters when you have one.
 - Free-tier App Service sleeps after 20 idle minutes; the first request afterwards takes
   20 to 60 seconds. The workflow's smoke test retries for that reason.
 - The API has no authentication. It serves random weather to anyone who asks.
