@@ -40,10 +40,11 @@ You need an Apple Developer Program membership and the repository on GitHub.
    created in Xcode; App Store Connect only shows documentation links until then. Any Mac
    with Xcode 26 will do for this half hour (a lab Mac, a colleague's, or an hourly cloud Mac):
    sign in to your Apple ID under Xcode > Settings > Accounts, clone the repo, open
-   `XcodeCloud/MacMauiCloud.xcodeproj`, choose Product > Xcode Cloud > Create Workflow, and
-   follow the assistant. It asks you to grant Xcode Cloud access to the GitHub repository in a
-   browser. After the first build finishes, everything else, including editing and creating
-   workflows, works in App Store Connect under the app's Xcode Cloud tab.
+   `XcodeCloud/MacMauiCloud.xcodeproj`, and choose **Integrate > Create Workflow** (the
+   Xcode Cloud commands live in the Integrate menu, not under Product). Follow the assistant;
+   it asks you to grant Xcode Cloud access to the GitHub repository in a browser. Afterwards,
+   `scripts/xcode-cloud-workflow.py` configures the workflow properly through the App Store
+   Connect API, and App Store Connect's Xcode Cloud tab can edit it too.
 3. **Configure the workflow** (in the Xcode assistant, or afterwards in App Store Connect).
    - *Start conditions:* branch changes on `main`, and tag changes matching `v*` if you want
      tags to set the display version.

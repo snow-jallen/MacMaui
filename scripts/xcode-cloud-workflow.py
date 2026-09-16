@@ -3,7 +3,8 @@
 
 Xcode Cloud products cannot be created through the API: POST /v1/ciProducts answers
 "The resource 'ciProducts' does not allow 'CREATE'". So the one-time onboarding, which
-connects the repository and registers the product, has to happen once in Xcode. Everything
+connects the repository and registers the product, has to happen once in Xcode
+(Integrate > Create Workflow). Everything
 after that is scriptable, which is what this file does.
 
 Usage:
@@ -112,7 +113,7 @@ def main():
     if not product:
         die(
             "no Xcode Cloud product whose name contains '%s'. Create it once in Xcode: open %s "
-            "on a Mac, then Product > Xcode Cloud > Create Workflow. This script configures it "
+            "on a Mac, then Integrate > Create Workflow. This script configures it "
             "afterwards." % (PRODUCT_NAME, CONTAINER_FILE_PATH)
         )
     print("product      %s (%s)" % (product["id"], product["attributes"].get("name")))
