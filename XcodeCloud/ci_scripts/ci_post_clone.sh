@@ -12,7 +12,12 @@
 #
 # Environment variables to set on the Xcode Cloud workflow (Environment section):
 #   API_BASE_URL     Where the deployed API lives, e.g. https://macmaui-api.azurewebsites.net
-#                    Baked into the app; without it the app cannot reach the API.
+#                    Optional: falls back to the committed XcodeCloud/api-base-url.txt.
+#   APPINSIGHTS_CONNECTION_STRING
+#                    Application Insights destination for the app's telemetry. Must be set here,
+#                    marked secret, because the App Store Connect API cannot write Xcode Cloud
+#                    environment variables and this repository is public, so unlike the API
+#                    address it is not committed. Without it the iOS build reports nothing.
 #   DOTNET_CHANNEL   .NET SDK channel to install (default 10.0)
 
 set -eu
@@ -63,6 +68,15 @@ else
   log "API base URL: $API_BASE_URL"
 fi
 
+# --- Telemetry destination. Not committed: see the header. -----------------------------------
+APPINSIGHTS_CONNECTION_STRING="${APPINSIGHTS_CONNECTION_STRING:-}"
+if [ -z "$APPINSIGHTS_CONNECTION_STRING" ]; then
+  echo "warning: APPINSIGHTS_CONNECTION_STRING is not set on this workflow, so this build will" >&2
+  echo "warning: send no telemetry. Add it under Environment in the Xcode Cloud workflow." >&2
+else
+  log "Telemetry: Application Insights configured"
+fi
+
 # --- .NET SDK -------------------------------------------------------------------------------
 export DOTNET_ROOT="$HOME/.dotnet"
 export PATH="$DOTNET_ROOT:$DOTNET_ROOT/tools:$PATH"
@@ -102,6 +116,7 @@ dotnet build "$MAUI_PROJECT" \
   --framework "$TFM" \
   -p:SingleTargetFramework="$TFM" \
   -p:ApiBaseUrl="$API_BASE_URL" \
+  -p:ApplicationInsightsConnectionString="$APPINSIGHTS_CONNECTION_STRING" \
   -p:CodesignKey=- \
   -p:CodesignRequireProvisioningProfile=false \
   -p:ApplicationVersion="$BUILD_NUMBER" \

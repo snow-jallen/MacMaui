@@ -41,6 +41,26 @@ The one habit to unlearn: the dashboard is instant, Application Insights is not.
 batched client-side and indexed server-side, so allow **one to three minutes** before it appears.
 Live metrics is the exception and is near real time.
 
+## The naming trap
+
+Application Insights uses "trace" to mean something different from OpenTelemetry and the Aspire
+dashboard, and this catches everyone once.
+
+| You want | Aspire dashboard | Application Insights table |
+|---|---|---|
+| Log messages from `ILogger` | Structured logs | **`traces`** |
+| Distributed traces, the span tree | Traces | **`requests`** and **`dependencies`**, joined by `operation_Id` |
+| Counters and histograms | Metrics | **`customMetrics`** |
+| Errors | Console output | **`exceptions`** |
+
+So opening `traces` and finding only startup messages is expected: that table is the log stream,
+and this app logs very little. The span tree you are looking for is in `requests` (what a server
+handled) and `dependencies` (what a client called, including the `GetWeather` span).
+
+The quickest way to see it as a tree rather than as rows is **Investigate > Transaction search**,
+pick any result, and click through to the end-to-end view. That is the direct equivalent of
+clicking a trace in the Aspire dashboard.
+
 ## Queries worth keeping
 
 Logs, traces and metrics all live in tables you query with KQL under **Monitoring > Logs**.
@@ -141,6 +161,21 @@ can read it. That is normal for client-side telemetry, the same as a website's J
 it does mean someone could send junk to your resource. The daily cap is what stops that becoming a
 bill. If the resource ever fills up with data you did not send, create a new Application Insights
 resource, run the bootstrap script again and publish a new build.
+
+## Why a client might be reporting nothing
+
+Client telemetry needs the connection string to have been baked into that particular build.
+
+- **Windows and Android** get it from the `APPINSIGHTS_CONNECTION_STRING` GitHub secret, which
+  means **only releases from v1.0.12 onwards report at all**. An app installed before that stays
+  silent until it updates. Check what you are running against the version in the release list.
+- **iOS** gets it from an environment variable on the Xcode Cloud workflow, which must be set by
+  hand under **Environment** in App Store Connect and marked secret. The App Store Connect API
+  cannot write Xcode Cloud environment variables, and this repository is public, so unlike the API
+  address it cannot simply be committed. The post-clone script prints a warning when it is missing.
+
+Once a build does have it, allow a couple of minutes: the exporter batches, and a short session
+may not flush before the app closes.
 
 ## When nothing shows up
 
