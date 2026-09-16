@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -17,6 +17,14 @@ public partial class WeatherViewModel(IWeatherApiClient weatherApi, Telemetry te
 	[ObservableProperty]
 	public partial bool IsBusy { get; set; }
 
+	/// <summary>
+	/// How many days of forecast to ask for. The API caches whole days for a few seconds, so
+	/// raising this shortly after a request adds the extra days and leaves the earlier ones
+	/// alone; the page will look like it grew rather than changed.
+	/// </summary>
+	[ObservableProperty]
+	public partial int Days { get; set; } = IWeatherApiClient.DefaultDays;
+
 	public ObservableCollection<WeatherForecast> Forecasts { get; } = [];
 
 	[RelayCommand]
@@ -27,19 +35,20 @@ public partial class WeatherViewModel(IWeatherApiClient weatherApi, Telemetry te
 		using var activity = telemetry.ActivitySource.StartActivity("GetWeather", ActivityKind.Client);
 
 		IsBusy = true;
-		Status = "Calling apiservice...";
+		Status = $"Asking apiservice for {Days} days...";
 		Forecasts.Clear();
 
 		var stopwatch = Stopwatch.StartNew();
 		try
 		{
-			var forecasts = await weatherApi.GetWeatherAsync(cancellationToken: cancellationToken);
+			var forecasts = await weatherApi.GetWeatherAsync(Days, cancellationToken);
 
 			foreach (var forecast in forecasts)
 			{
 				Forecasts.Add(forecast);
 			}
 
+			activity?.SetTag("weather.days_requested", Days);
 			activity?.SetTag("weather.forecast_count", forecasts.Length);
 			telemetry.WeatherRequests.Add(1, new KeyValuePair<string, object?>("outcome", "success"));
 

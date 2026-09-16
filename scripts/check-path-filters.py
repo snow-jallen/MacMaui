@@ -17,9 +17,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILTERS = os.path.join(REPO, ".github", "path-filters.yml")
 
 # Which project each pipeline area builds. The transitive references are worked out below.
+# The test projects are roots too, so editing a test triggers the pipeline that runs it.
 AREA_ROOTS = {
-    "api": ["MacMaui.ApiService"],
-    "maui": ["MacMaui.Mobile"],
+    "api": ["MacMaui.ApiService", "MacMaui.ApiTests"],
+    "maui": ["MacMaui.Mobile", "MacMaui.ClientTests"],
 }
 
 

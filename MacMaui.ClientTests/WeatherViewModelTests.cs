@@ -1,4 +1,4 @@
-using MacMaui.ClientLogic;
+﻿using MacMaui.ClientLogic;
 
 namespace MacMaui.ClientTests;
 
@@ -57,6 +57,28 @@ public class WeatherViewModelTests
 		viewModel.Status.ShouldContain("apiservice unreachable");
 		viewModel.Forecasts.ShouldBeEmpty();
 		viewModel.IsBusy.ShouldBeFalse();
+	}
+
+	[Fact]
+	public async Task LoadWeather_asks_the_api_for_the_selected_number_of_days()
+	{
+		var api = Substitute.For<IWeatherApiClient>();
+		api.GetWeatherAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+		   .Returns([Forecast()]);
+
+		var viewModel = new WeatherViewModel(api, new Telemetry()) { Days = 14 };
+
+		await viewModel.LoadWeatherCommand.ExecuteAsync(null);
+
+		await api.Received(1).GetWeatherAsync(14, Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public void Days_defaults_to_the_client_default()
+	{
+		var viewModel = new WeatherViewModel(Substitute.For<IWeatherApiClient>(), new Telemetry());
+
+		viewModel.Days.ShouldBe(IWeatherApiClient.DefaultDays);
 	}
 
 	[Fact]

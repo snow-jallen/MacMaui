@@ -11,18 +11,21 @@
 # Keep every entry in the form `Directory/**`; the guard and the Xcode Cloud script both
 # assume that shape. Markdown is excluded everywhere, so documentation never triggers a build.
 
-# MacMaui.ApiService and everything it references.
+# MacMaui.ApiService and everything it references, plus its tests.
 api:
   - 'MacMaui.ApiService/**'
   - 'MacMaui.ServiceDefaults/**'
+  - 'MacMaui.ApiTests/**'
   - '.github/workflows/release.yml'
   - '!**/*.md'
 
-# MacMaui.Mobile and everything it references. Shared by the Android, Windows and iOS builds.
+# MacMaui.Mobile and everything it references, plus its tests. Shared by the Android, Windows
+# and iOS builds.
 maui:
   - 'MacMaui.Mobile/**'
   - 'MacMaui.ClientLogic/**'
   - 'MacMaui.MauiServiceDefaults/**'
+  - 'MacMaui.ClientTests/**'
   - '.github/workflows/release.yml'
   - '!**/*.md'
 

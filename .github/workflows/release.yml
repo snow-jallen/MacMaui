@@ -101,9 +101,30 @@ jobs:
         run: |
           echo "api=${{ steps.filter.outputs.api }}  maui=${{ steps.filter.outputs.maui }}"
 
+  test:
+    name: Tests
+    needs: changes
+    if: needs.changes.outputs.api == 'true' || needs.changes.outputs.maui == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # MacMaui.Tests is not here on purpose: it starts the real AppHost, which wants Docker and
+      # an interactive dev tunnel login. These two are plain net10.0 and run in seconds, which is
+      # what makes them worth gating a deploy on.
+      - name: API unit tests
+        run: dotnet test MacMaui.ApiTests/MacMaui.ApiTests.csproj --configuration Release
+
+      - name: Client unit and BDD tests
+        run: dotnet test MacMaui.ClientTests/MacMaui.ClientTests.csproj --configuration Release
+
   deploy-api:
     name: Deploy API to Azure
-    needs: changes
+    needs: [changes, test]
     if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     # The OIDC federated credential created by scripts/azure-bootstrap.ps1 trusts
@@ -156,12 +177,12 @@ jobs:
 
   android:
     name: Android APK
-    needs: [version, changes, deploy-api]
+    needs: [version, changes, test, deploy-api]
     # Runs on any MAUI change. always() is needed because deploy-api is skipped when
     # only app code changed, and a skipped dependency would otherwise skip this too.
     if: |
       always() && needs.changes.outputs.maui == 'true'
-      && needs.version.result == 'success'
+      && needs.version.result == 'success' && needs.test.result == 'success'
       && needs.deploy-api.result != 'failure' && needs.deploy-api.result != 'cancelled'
     runs-on: ubuntu-latest
     env:
@@ -236,12 +257,12 @@ jobs:
 
   windows:
     name: Windows app
-    needs: [version, changes, deploy-api]
+    needs: [version, changes, test, deploy-api]
     # Runs on any MAUI change. always() is needed because deploy-api is skipped when
     # only app code changed, and a skipped dependency would otherwise skip this too.
     if: |
       always() && needs.changes.outputs.maui == 'true'
-      && needs.version.result == 'success'
+      && needs.version.result == 'success' && needs.test.result == 'success'
       && needs.deploy-api.result != 'failure' && needs.deploy-api.result != 'cancelled'
     runs-on: windows-latest
     env:

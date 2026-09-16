@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:cl="clr-namespace:MacMaui.ClientLogic;assembly=MacMaui.ClientLogic"
@@ -8,7 +8,7 @@
 
     <Grid Padding="24"
           RowSpacing="16"
-          RowDefinitions="Auto,Auto,Auto,*">
+          RowDefinitions="Auto,Auto,Auto,Auto,*">
 
         <!-- "MacMaui" is the template's sourceName, so this shows the name the app was
              generated with, e.g. Public3 or Demo5. -->
@@ -19,7 +19,26 @@
                HorizontalOptions="Center"
                SemanticProperties.HeadingLevel="Level1" />
 
-        <Button Grid.Row="1"
+        <!-- Stepper rather than a text box: the value has a sensible range and this keeps it
+             inside it without any validation code or a keyboard on mobile. -->
+        <HorizontalStackLayout Grid.Row="1" Spacing="12" HorizontalOptions="Center">
+            <Label Text="Days"
+                   VerticalOptions="Center"
+                   FontSize="16" />
+            <Stepper Minimum="1"
+                     Maximum="30"
+                     Increment="1"
+                     Value="{Binding Days}"
+                     SemanticProperties.Description="Number of forecast days to request"
+                     VerticalOptions="Center" />
+            <Label Text="{Binding Days}"
+                   FontAttributes="Bold"
+                   FontSize="16"
+                   WidthRequest="32"
+                   VerticalOptions="Center" />
+        </HorizontalStackLayout>
+
+        <Button Grid.Row="2"
                 Text="Get Weather"
                 FontSize="18"
                 HeightRequest="56"
@@ -27,7 +46,7 @@
                 SemanticProperties.Hint="Calls the weather API and shows the forecast"
                 Command="{Binding LoadWeatherCommand}" />
 
-        <HorizontalStackLayout Grid.Row="2" Spacing="10">
+        <HorizontalStackLayout Grid.Row="3" Spacing="10">
             <ActivityIndicator IsRunning="{Binding IsBusy}"
                                IsVisible="{Binding IsBusy}"
                                HeightRequest="18"
@@ -37,7 +56,7 @@
                    VerticalOptions="Center" />
         </HorizontalStackLayout>
 
-        <CollectionView Grid.Row="3"
+        <CollectionView Grid.Row="4"
                         ItemsSource="{Binding Forecasts}">
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="cl:WeatherForecast">
