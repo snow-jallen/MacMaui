@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -39,7 +39,7 @@ var androidEmulator = mobile.AddAndroidEmulator()
     .WithReference(apiService, mobileApiTunnel);
 
 // Starting this resource normally fails with NETSDK1085, because Aspire.Hosting.Maui
-// 13.5.3-preview.1 launches Android with -p:NoBuild=true and Android's Run target depends
+// 13.5.4-preview.1 still launches Android with -p:NoBuild=true and Android's Run target depends
 // on Install, which invokes Build. Starting it is still useful: it performs the pre-build
 // and writes the environment targets file carrying the OTLP and service discovery values.
 // This command then launches the app with the identical command minus that one flag.

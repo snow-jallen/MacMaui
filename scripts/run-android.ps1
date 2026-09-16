@@ -1,7 +1,8 @@
-<#
+﻿<#
 .SYNOPSIS
     Builds and launches the MAUI app on an Android emulator, working around a bug in
-    Aspire.Hosting.Maui 13.5.3-preview.1.
+    Aspire.Hosting.Maui 13.5.4-preview.1 (still present there: its assembly contains
+    -p:NoBuild and /t:Run, unchanged from 13.5.3-preview.1).
 
 .DESCRIPTION
     Run this with the AppHost already running (aspire start). It does the whole Android

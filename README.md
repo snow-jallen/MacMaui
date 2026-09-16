@@ -136,6 +136,9 @@ open **Actions > Release > Run workflow** and type one.
   needs a code-signing certificate; `vpk pack` accepts signing parameters when you have one.
 - Free-tier App Service sleeps after 20 idle minutes; the first request afterwards takes
   20 to 60 seconds. The workflow's smoke test retries for that reason.
+- Each release also carries the previous version's full package. That is not waste: Velopack's
+  `releases.win.json` uses it as the delta base, and `UpdateManager` only takes the delta path
+  when that entry is present. Dropping it would turn every update into a full download.
 - The API has no authentication. It serves random weather to anyone who asks.
 - `dotnet publish` should be scoped to a single project, never the solution, because the
   MAUI project cannot publish for every platform from one machine.
