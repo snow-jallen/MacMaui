@@ -1,0 +1,32 @@
+# Which parts of the repository each pipeline cares about. One source of truth:
+#
+#   .github/workflows/release.yml   reads this with dorny/paths-filter to decide whether to
+#                                   deploy the API and whether to build the apps.
+#   scripts/xcode-cloud-workflow.py reads the `maui` and `ios` lists and writes them into the
+#                                   Xcode Cloud workflow's start condition.
+#   scripts/check-path-filters.py   fails the build if these lists stop covering the actual
+#                                   project references, so adding a project cannot silently
+#                                   stop triggering builds.
+#
+# Keep every entry in the form `Directory/**`; the guard and the Xcode Cloud script both
+# assume that shape. Markdown is excluded everywhere, so documentation never triggers a build.
+
+# MacMaui.ApiService and everything it references.
+api:
+  - 'MacMaui.ApiService/**'
+  - 'MacMaui.ServiceDefaults/**'
+  - '.github/workflows/release.yml'
+  - '!**/*.md'
+
+# MacMaui.Mobile and everything it references. Shared by the Android, Windows and iOS builds.
+maui:
+  - 'MacMaui.Mobile/**'
+  - 'MacMaui.ClientLogic/**'
+  - 'MacMaui.MauiServiceDefaults/**'
+  - '.github/workflows/release.yml'
+  - '!**/*.md'
+
+# The Xcode Cloud wrapper project and its scripts. Only the iOS build cares about these.
+ios:
+  - 'XcodeCloud/**'
+  - '!**/*.md'

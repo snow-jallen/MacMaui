@@ -5,10 +5,13 @@
 # version is 1.0.<run number> and the release job creates that tag for you, so main is always
 # deployed and every build keeps a permanent download link.
 #
-# Documentation-only pushes are skipped, matching the same rule on the Xcode Cloud workflow.
-# The filter is deliberately only about docs. Every other push builds all three artifacts,
-# because a release that contains an APK but a stale Windows zip would be worse than a
-# release that took four extra minutes.
+# Each half of the repository triggers only its own work, per .github/path-filters.yml:
+# an API change deploys the API, a MAUI change builds the Android and Windows apps and
+# publishes a release, and a change to both does both. Documentation never triggers anything.
+#
+# Android and Windows are deliberately not split from each other. They build from the same
+# project, so a release carrying a fresh APK beside a stale Windows zip would be worse than
+# one that took four extra minutes.
 #
 # One-time setup: scripts/azure-bootstrap.ps1 creates the Azure resources and stores the
 # secrets and variables this file reads. See README.md.
@@ -71,8 +74,33 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Version $display (build $GITHUB_RUN_NUMBER)"
 
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      maui: ${{ steps.filter.outputs.maui }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: .github/path-filters.yml
+
+      - name: Check the filters still cover the project references
+        # Without this, adding a project and forgetting the filter would silently stop
+        # triggering builds. The guard turns that into a failure instead.
+        run: python3 scripts/check-path-filters.py
+
+      - name: Summary
+        run: |
+          echo "api=${{ steps.filter.outputs.api }}  maui=${{ steps.filter.outputs.maui }}"
+
   deploy-api:
     name: Deploy API to Azure
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     # The OIDC federated credential created by scripts/azure-bootstrap.ps1 trusts
     # repo:<owner>/<repo>:environment:production, so the job must run in that environment.
@@ -124,7 +152,13 @@ jobs:
 
   android:
     name: Android APK
-    needs: [version, deploy-api]
+    needs: [version, changes, deploy-api]
+    # Runs on any MAUI change. always() is needed because deploy-api is skipped when
+    # only app code changed, and a skipped dependency would otherwise skip this too.
+    if: |
+      always() && needs.changes.outputs.maui == 'true'
+      && needs.version.result == 'success'
+      && needs.deploy-api.result != 'failure' && needs.deploy-api.result != 'cancelled'
     runs-on: ubuntu-latest
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -198,7 +232,13 @@ jobs:
 
   windows:
     name: Windows app
-    needs: [version, deploy-api]
+    needs: [version, changes, deploy-api]
+    # Runs on any MAUI change. always() is needed because deploy-api is skipped when
+    # only app code changed, and a skipped dependency would otherwise skip this too.
+    if: |
+      always() && needs.changes.outputs.maui == 'true'
+      && needs.version.result == 'success'
+      && needs.deploy-api.result != 'failure' && needs.deploy-api.result != 'cancelled'
     runs-on: windows-latest
     env:
       API_BASE_URL: ${{ vars.API_BASE_URL }}
@@ -255,7 +295,11 @@ jobs:
 
   release:
     name: GitHub release
-    needs: [version, deploy-api, android, windows]
+    needs: [version, changes, android, windows]
+    # Only publish when there are fresh artifacts to publish.
+    if: |
+      always() && needs.changes.outputs.maui == 'true'
+      && needs.android.result == 'success' && needs.windows.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

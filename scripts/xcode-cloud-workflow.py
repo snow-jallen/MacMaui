@@ -96,6 +96,35 @@ def find(path, predicate, what):
     return None
 
 
+def ios_directories():
+    """Directories that should trigger an iOS build, from .github/path-filters.yml.
+
+    Reads the `maui` and `ios` areas of the shared filter file so the two pipelines cannot
+    drift apart. The file is a simple mapping of area to quoted `Directory/**` globs, so it is
+    parsed here directly rather than taking a dependency on PyYAML.
+    """
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        ".github", "path-filters.yml")
+    wanted, directories, area = ("maui", "ios"), [], None
+    with open(path, encoding="utf-8") as handle:
+        for raw in handle:
+            line = raw.split("#", 1)[0].rstrip()
+            if not line.strip():
+                continue
+            if not line.startswith((" ", "	", "-")) and line.rstrip().endswith(":"):
+                area = line.strip()[:-1]
+            elif area in wanted and line.strip().startswith("-"):
+                pattern = line.strip().lstrip("-").strip().strip("'\"")
+                if pattern.startswith("!") or not pattern.endswith("/**"):
+                    continue  # exclusions, and single files like a workflow yml
+                directory = pattern[: -len("/**")]
+                if directory not in directories:
+                    directories.append(directory)
+    if not directories:
+        die("no directories found in " + path)
+    return directories
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-build", action="store_true", help="start a build once configured")
@@ -155,13 +184,14 @@ def main():
         "branchStartCondition": {
             "source": {"isAllMatch": False,
                        "patterns": [{"pattern": BRANCH, "isPrefix": False}]},
-            # Skip a push only when every changed file is documentation. Stated this way round
-            # rather than listing the source folders that should build, so adding a project can
-            # never silently stop triggering iOS builds. An iOS build costs about ten minutes
-            # of the Xcode Cloud allowance, and README edits were spending it.
+            # Build only when the app or the Xcode Cloud wrapper changed. The directories come
+            # from .github/path-filters.yml, the same file the GitHub Actions workflow reads,
+            # and scripts/check-path-filters.py fails the build if that list stops matching the
+            # project references, which is what stops this filter from silently going stale.
             "filesAndFoldersRule": {
-                "mode": "DO_NOT_START_IF_ALL_FILES_MATCH",
-                "matchers": [{"directory": None, "fileExtension": "md", "fileName": None}],
+                "mode": "START_IF_ANY_FILE_MATCHES",
+                "matchers": [{"directory": d, "fileExtension": None, "fileName": None}
+                             for d in ios_directories()],
             },
             "autoCancel": True,
         },
