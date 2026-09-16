@@ -1,0 +1,270 @@
+# Release pipeline: deploy the API to Azure App Service, then build the Android APK and the
+# Windows app against that API and publish both as a GitHub release.
+#
+# Runs when a tag such as v1.2.3 is pushed, or by hand from the Actions tab.
+#
+# One-time setup: scripts/azure-bootstrap.ps1 creates the Azure resources and stores the
+# secrets and variables this file reads. See README.md.
+#
+#   Variables  AZURE_WEBAPP_NAME, API_BASE_URL
+#   Secrets    AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID   (OIDC login)
+#              or AZURE_WEBAPP_PUBLISH_PROFILE                            (fallback)
+#              ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,        (optional; without them
+#              ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD                     the APK is debug-signed)
+#
+# The iOS build is not here: Xcode Cloud builds it from XcodeCloud/ on Apple's Macs.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Display version, e.g. 1.2.3. Default: the tag, or 0.0.<run number>.'
+        required: false
+        type: string
+
+permissions:
+  contents: write   # create the release
+  id-token: write   # Azure OIDC login
+
+env:
+  DOTNET_VERSION: 10.0.x
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  MOBILE_PROJECT: MacMaui.Mobile/MacMaui.Mobile.csproj
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      display: ${{ steps.v.outputs.display }}
+      build: ${{ steps.v.outputs.build }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - id: v
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            display="${GITHUB_REF_NAME:1}"
+          elif [[ -n "$INPUT_VERSION" ]]; then
+            display="$INPUT_VERSION"
+          else
+            display="0.0.$GITHUB_RUN_NUMBER"
+          fi
+          {
+            echo "display=$display"
+            echo "build=$GITHUB_RUN_NUMBER"      # CFBundleVersion / versionCode: unique per run
+            echo "tag=v$display"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version $display (build $GITHUB_RUN_NUMBER)"
+
+  deploy-api:
+    name: Deploy API to Azure
+    runs-on: ubuntu-latest
+    # The OIDC federated credential created by scripts/azure-bootstrap.ps1 trusts
+    # repo:<owner>/<repo>:environment:production, so the job must run in that environment.
+    environment:
+      name: production
+      url: ${{ vars.API_BASE_URL }}
+    env:
+      AZURE_WEBAPP_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Publish API
+        run: dotnet publish MacMaui.ApiService/MacMaui.ApiService.csproj --configuration Release --output "${{ runner.temp }}/api"
+
+      - name: Azure login (OIDC)
+        if: env.AZURE_WEBAPP_PUBLISH_PROFILE == ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy (OIDC)
+        if: env.AZURE_WEBAPP_PUBLISH_PROFILE == ''
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: ${{ runner.temp }}/api
+
+      - name: Deploy (publish profile)
+        if: env.AZURE_WEBAPP_PUBLISH_PROFILE != ''
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ runner.temp }}/api
+
+      - name: Smoke test
+        # Free-tier App Service cold starts slowly; give it a couple of minutes.
+        run: |
+          curl --fail --silent --show-error --retry 20 --retry-delay 6 --retry-all-errors \
+            "${{ vars.API_BASE_URL }}/weatherforecast"
+          echo
+          echo "API is answering at ${{ vars.API_BASE_URL }}"
+
+  android:
+    name: Android APK
+    needs: [version, deploy-api]
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      API_BASE_URL: ${{ vars.API_BASE_URL }}
+      DISPLAY_VERSION: ${{ needs.version.outputs.display }}
+      BUILD_NUMBER: ${{ needs.version.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install MAUI Android workload
+        run: dotnet workload install maui-android
+
+      - name: Install the Android SDK components the build needs
+        run: |
+          dotnet build "$MOBILE_PROJECT" -t:InstallAndroidDependencies \
+            --framework net10.0-android \
+            -p:SingleTargetFramework=net10.0-android \
+            -p:AndroidSdkDirectory="$ANDROID_HOME" \
+            -p:AcceptAndroidSDKLicenses=True
+
+      - name: Publish APK
+        run: |
+          signing=()
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            signing=(
+              -p:AndroidKeyStore=true
+              -p:AndroidSigningKeyStore="$RUNNER_TEMP/release.keystore"
+              -p:AndroidSigningKeyAlias="$ANDROID_KEY_ALIAS"
+              -p:AndroidSigningKeyPass="$ANDROID_KEY_PASSWORD"
+              -p:AndroidSigningStorePass="$ANDROID_KEYSTORE_PASSWORD"
+            )
+            echo "Signing with the release keystore."
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret: the APK gets the default debug signature."
+          fi
+
+          dotnet publish "$MOBILE_PROJECT" \
+            --framework net10.0-android \
+            --configuration Release \
+            -p:SingleTargetFramework=net10.0-android \
+            -p:AndroidSdkDirectory="$ANDROID_HOME" \
+            -p:AndroidPackageFormats=apk \
+            -p:ApiBaseUrl="$API_BASE_URL" \
+            -p:ApplicationDisplayVersion="$DISPLAY_VERSION" \
+            -p:ApplicationVersion="$BUILD_NUMBER" \
+            "${signing[@]}" \
+            --output "$RUNNER_TEMP/android"
+
+          mkdir -p dist
+          cp "$RUNNER_TEMP"/android/*-Signed.apk "dist/MacMaui.Mobile-$DISPLAY_VERSION-android.apk"
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows app
+    needs: [version, deploy-api]
+    runs-on: windows-latest
+    env:
+      API_BASE_URL: ${{ vars.API_BASE_URL }}
+      DISPLAY_VERSION: ${{ needs.version.outputs.display }}
+      BUILD_NUMBER: ${{ needs.version.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install MAUI Windows workload
+        run: dotnet workload install maui-windows
+
+      - name: Publish unpackaged Windows app
+        shell: pwsh
+        run: |
+          # Self-contained and unpackaged: a folder with MacMaui.Mobile.exe that runs on 64-bit
+          # Windows 10 (1809+) or 11 with nothing installed. RuntimeIdentifierOverride is how the
+          # MAUI SDK takes the RID without pushing it onto the referenced class libraries.
+          dotnet publish "$env:MOBILE_PROJECT" `
+            --framework net10.0-windows10.0.19041.0 `
+            --configuration Release `
+            -p:SingleTargetFramework=net10.0-windows10.0.19041.0 `
+            -p:RuntimeIdentifierOverride=win-x64 `
+            -p:WindowsPackageType=None `
+            -p:WindowsAppSDKSelfContained=true `
+            -p:SelfContained=true `
+            -p:ApiBaseUrl="$env:API_BASE_URL" `
+            -p:ApplicationDisplayVersion="$env:DISPLAY_VERSION" `
+            -p:ApplicationVersion="$env:BUILD_NUMBER" `
+            --output "$env:RUNNER_TEMP/windows"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "$env:RUNNER_TEMP/windows/*" `
+            -DestinationPath "dist/MacMaui.Mobile-$env:DISPLAY_VERSION-windows-x64.zip"
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    needs: [version, deploy-api, android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: MacMaui ${{ needs.version.outputs.display }}
+          generate_release_notes: true
+          files: dist/*
+          body: |
+            Build ${{ needs.version.outputs.build }}. Every client in this release talks to the API at ${{ vars.API_BASE_URL }}.
+
+            | Download | Install |
+            |---|---|
+            | `MacMaui.Mobile-${{ needs.version.outputs.display }}-android.apk` | Copy to an Android device and open it (allow installs from this source). |
+            | `MacMaui.Mobile-${{ needs.version.outputs.display }}-windows-x64.zip` | Extract anywhere and run `MacMaui.Mobile.exe`. |
+            | iOS | TestFlight, built by Xcode Cloud from the same commit. |
