@@ -4,6 +4,11 @@
 reached TestFlight on 2026-09-16. Pushing to `main` builds and distributes to the Internal
 group. The setup steps below are kept for reference and for rebuilding this from scratch.
 
+A push whose files are **all** Markdown does not start a build, since an iOS archive costs
+about ten minutes of the Xcode Cloud allowance and README edits were spending it. The rule is
+written that way round, rather than naming the source folders that should build, so adding a
+project can never silently stop triggering iOS builds.
+
 To change the workflow, edit `scripts/xcode-cloud-workflow.py` and run it; it rewrites the
 workflow in place through the App Store Connect API. Do not hand-edit it in App Store Connect,
 or the next run of the script will overwrite your change.
