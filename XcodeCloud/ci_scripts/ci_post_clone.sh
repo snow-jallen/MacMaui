@@ -80,6 +80,14 @@ log "Xcode selected for this build"
 xcode-select -p
 xcodebuild -version
 
+# Point the .NET iOS SDK at the Xcode that is actually selected. Without this it reads the path
+# from ~/Library/Preferences/maui/Settings.plist, which on any Mac that has built MAUI before can
+# name an Xcode that is no longer installed ("Could not find a valid Xcode app bundle at ..."),
+# and on Xcode Cloud would ignore the Xcode version chosen in the workflow's Environment section.
+MD_APPLE_SDK_ROOT="$(dirname "$(dirname "$(xcode-select -p)")")"
+export MD_APPLE_SDK_ROOT
+log "MD_APPLE_SDK_ROOT=$MD_APPLE_SDK_ROOT"
+
 # --- Build the MAUI app bundle for a device. ------------------------------------------------
 # SingleTargetFramework trims TargetFrameworks to iOS and selects the ios-arm64 runtime (see the
 # csproj), so restore does not demand the Android and Mac Catalyst workloads. CodesignKey=- signs
