@@ -19,6 +19,7 @@ Azure and the app to iOS, Android, and Windows from a Windows development machin
 | `.github/workflows/release.yml` | Deploys the API to Azure App Service, builds the APK and the Windows app against it, publishes a GitHub release. |
 | `scripts/azure-bootstrap.ps1` | One-time Azure and GitHub setup for that workflow. |
 | `scripts/run-android.ps1` | Local Android launch helper from the template. |
+| `docs/telemetry.md` | Where logs, traces and metrics go in production, and how to read them. |
 
 ## Local development
 
@@ -45,6 +46,16 @@ the injected environment still wins. All three platform builds receive the same 
 GitHub Actions passes the `API_BASE_URL` repository variable, and Xcode Cloud reads the
 committed `XcodeCloud/api-base-url.txt`, because the App Store Connect API cannot write
 Xcode Cloud environment variables.
+
+## Telemetry
+
+Under `aspire start` the app and the API report to the Aspire dashboard, unchanged. Deployed, there
+is no dashboard, so the same OpenTelemetry signals go to Application Insights
+(`macmaui-insights` in `macmaui-rg`). The server reads its connection string from an App Service
+setting; the client builds have it baked in, the same way they carry the API address.
+
+[docs/telemetry.md](docs/telemetry.md) maps each part of the Aspire dashboard to its Application
+Insights equivalent and has the queries worth keeping.
 
 ## Release pipeline
 

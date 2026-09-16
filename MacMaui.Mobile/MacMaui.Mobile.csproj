@@ -117,6 +117,15 @@
 		<AssemblyMetadata Include="ApiBaseUrl" Value="$(ApiBaseUrl)" />
 	</ItemGroup>
 
+	<!-- Where a released build sends its telemetry. Same mechanism as ApiBaseUrl: there is no
+	     Aspire dashboard outside development, so the connection string travels in the binary.
+	     Note this means anyone with the app can read it and send data to the resource, which is
+	     why the bootstrap script sets a daily ingestion cap.
+	         dotnet publish -p:ApplicationInsightsConnectionString="InstrumentationKey=..." -->
+	<ItemGroup Condition="'$(ApplicationInsightsConnectionString)' != ''">
+		<AssemblyMetadata Include="ApplicationInsightsConnectionString" Value="$(ApplicationInsightsConnectionString)" />
+	</ItemGroup>
+
 	<ItemGroup>
 	  <ProjectReference Include="..\MacMaui.ClientLogic\MacMaui.ClientLogic.csproj" />
 	  <ProjectReference Include="..\MacMaui.MauiServiceDefaults\MacMaui.MauiServiceDefaults.csproj" />

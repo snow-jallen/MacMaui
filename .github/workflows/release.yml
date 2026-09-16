@@ -191,6 +191,7 @@ jobs:
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       API_BASE_URL: ${{ vars.API_BASE_URL }}
+      APPINSIGHTS_CONNECTION_STRING: ${{ secrets.APPINSIGHTS_CONNECTION_STRING }}
       DISPLAY_VERSION: ${{ needs.version.outputs.display }}
       BUILD_NUMBER: ${{ needs.version.outputs.build }}
     steps:
@@ -240,6 +241,7 @@ jobs:
             -p:AndroidSdkDirectory="$ANDROID_HOME" \
             -p:AndroidPackageFormats=apk \
             -p:ApiBaseUrl="$API_BASE_URL" \
+            -p:ApplicationInsightsConnectionString="$APPINSIGHTS_CONNECTION_STRING" \
             -p:ApplicationDisplayVersion="$DISPLAY_VERSION" \
             -p:ApplicationVersion="$BUILD_NUMBER" \
             "${signing[@]}" \
@@ -267,6 +269,7 @@ jobs:
     runs-on: windows-latest
     env:
       API_BASE_URL: ${{ vars.API_BASE_URL }}
+      APPINSIGHTS_CONNECTION_STRING: ${{ secrets.APPINSIGHTS_CONNECTION_STRING }}
       DISPLAY_VERSION: ${{ needs.version.outputs.display }}
       BUILD_NUMBER: ${{ needs.version.outputs.build }}
     steps:
@@ -309,6 +312,7 @@ jobs:
             -p:WindowsAppSDKSelfContained=true `
             -p:SelfContained=false `
             -p:ApiBaseUrl="$env:API_BASE_URL" `
+            -p:ApplicationInsightsConnectionString="$env:APPINSIGHTS_CONNECTION_STRING" `
             -p:ApplicationDisplayVersion="$env:DISPLAY_VERSION" `
             -p:ApplicationVersion="$env:BUILD_NUMBER" `
             --output "$env:RUNNER_TEMP/windows"

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     One-time setup for .github/workflows/release.yml: creates the Azure App Service that hosts
     MacMaui.ApiService, lets GitHub Actions deploy to it, and stores the resulting secrets and
@@ -38,6 +38,11 @@ param(
     [string]$AppName = 'macmaui-api',
     # F1 is free (60 CPU-minutes/day, cold starts). B1 is the cheapest always-warm tier.
     [string]$Sku = 'F1',
+    [string]$WorkspaceName = 'macmaui-logs',
+    [string]$InsightsName = 'macmaui-insights',
+    # GB per day of telemetry before ingestion stops until tomorrow. Azure Monitor includes
+    # 5 GB per month free, so this is a guard rail rather than an expected cost.
+    [int]$DailyCapGb = 1,
     # owner/name. Defaults to the repository the current directory is a clone of.
     [string]$Repo,
     # GitHub environment the deploy job runs in; must match release.yml.
@@ -89,10 +94,52 @@ Invoke-Az webapp update -g $ResourceGroup -n $AppName --https-only true -o none
 $hostName = (Invoke-Az webapp show -g $ResourceGroup -n $AppName --query defaultHostName -o tsv).Trim()
 $apiBaseUrl = "https://$hostName"
 
+# --- Application Insights -------------------------------------------------------------------
+# Where telemetry goes once the app is no longer running under the Aspire dashboard. Without
+# this the OpenTelemetry spans, logs and metrics are produced and then dropped, because the
+# service defaults only export when they are told an endpoint.
+Write-Host "==> Log Analytics workspace $WorkspaceName"
+$workspaceExists = (Invoke-Az monitor log-analytics workspace list -g $ResourceGroup --query "[?name=='$WorkspaceName'] | length(@)" -o tsv).Trim()
+if ($workspaceExists -eq '0') {
+    Invoke-Az monitor log-analytics workspace create -g $ResourceGroup -n $WorkspaceName -l $Location -o none
+}
+$workspaceId = (Invoke-Az monitor log-analytics workspace show -g $ResourceGroup -n $WorkspaceName --query id -o tsv).Trim()
+
+Write-Host "==> Application Insights $InsightsName"
+if (-not (& az extension show --name application-insights 2>$null)) {
+    Invoke-Az extension add --name application-insights --yes -o none
+}
+$insightsExists = (Invoke-Az monitor app-insights component show -g $ResourceGroup --query "[?name=='$InsightsName'] | length(@)" -o tsv 2>$null)
+if (-not $insightsExists -or $insightsExists.Trim() -eq '0') {
+    Invoke-Az monitor app-insights component create `
+        --app $InsightsName -g $ResourceGroup -l $Location `
+        --workspace $workspaceId --application-type web -o none
+}
+$insightsConnection = (Invoke-Az monitor app-insights component show --app $InsightsName -g $ResourceGroup --query connectionString -o tsv).Trim()
+
+# A daily cap so a runaway loop, or someone else using the ingestion key lifted out of the
+# shipped client, cannot run up a bill. Telemetry past the cap is dropped until the next day.
+Write-Host "==> Daily ingestion cap: $DailyCapGb GB"
+try {
+    Invoke-Az monitor app-insights component billing update --app $InsightsName -g $ResourceGroup --cap $DailyCapGb -o none
+}
+catch {
+    Write-Warning "Could not set the daily cap; set it in the portal under Usage and estimated costs."
+}
+
+Write-Host "==> App Service setting APPLICATIONINSIGHTS_CONNECTION_STRING"
+Invoke-Az webapp config appsettings set -g $ResourceGroup -n $AppName `
+    --settings "APPLICATIONINSIGHTS_CONNECTION_STRING=$insightsConnection" -o none
+
 Write-Host "==> GitHub variables"
 & gh variable set AZURE_WEBAPP_NAME --repo $Repo --body $AppName
 & gh variable set AZURE_RESOURCE_GROUP --repo $Repo --body $ResourceGroup
 & gh variable set API_BASE_URL --repo $Repo --body $apiBaseUrl
+
+# A secret rather than a variable so it is masked in build logs. It is not truly secret once
+# the desktop and mobile builds embed it, but there is no reason to print it either.
+Write-Host "==> GitHub secret APPINSIGHTS_CONNECTION_STRING"
+$insightsConnection | & gh secret set APPINSIGHTS_CONNECTION_STRING --repo $Repo
 
 if ($UsePublishProfile) {
     Write-Host "==> Publish profile -> secret AZURE_WEBAPP_PUBLISH_PROFILE"
@@ -157,6 +204,7 @@ else {
 Write-Host ''
 Write-Host 'Done.'
 Write-Host "  API_BASE_URL = $apiBaseUrl"
+Write-Host "  Application Insights = $InsightsName (daily cap $DailyCapGb GB)"
 Write-Host ''
 Write-Host 'Next:'
 Write-Host "  1. Xcode Cloud workflow > Environment: add API_BASE_URL = $apiBaseUrl"

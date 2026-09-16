@@ -16,9 +16,13 @@
 		<PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.0.0" />
 		<PackageReference Include="Microsoft.Extensions.ServiceDiscovery" Version="9.0.0" />
-		<PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.9.0" />
-		<PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.9.0" />
-		<PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.9.0" />
-		<PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.9.0" />
+		<PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
+		<PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
+		<PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
+		<PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
+		<!-- The exporter rather than the AspNetCore package: this runs in a MAUI app, which has
+		     no ASP.NET Core host. Sends the client's own spans, logs and metrics to the same
+		     Application Insights resource the API uses, so one trace spans both. -->
+		<PackageReference Include="Azure.Monitor.OpenTelemetry.Exporter" Version="1.9.0" />
 	</ItemGroup>
 </Project>

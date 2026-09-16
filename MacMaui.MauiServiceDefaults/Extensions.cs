@@ -1,3 +1,4 @@
+﻿using Azure.Monitor.OpenTelemetry.Exporter;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -97,6 +98,23 @@ public static class Extensions
         if (useOtlpExporter)
         {
             builder.Services.AddOpenTelemetry().UseOtlpExporter();
+        }
+
+        // Released builds are not launched by Aspire, so there is no dashboard listening and the
+        // OTLP endpoint above is unset. The connection string is baked in at build time instead
+        // (see ApplicationInsightsConnectionString in MacMaui.Mobile.csproj), which is how a
+        // shipped app reports at all. Left unset, the app simply reports nothing.
+        var applicationInsights = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
+        if (!string.IsNullOrWhiteSpace(applicationInsights))
+        {
+            builder.Services.AddOpenTelemetry()
+                .WithTracing(tracing => tracing.AddAzureMonitorTraceExporter(
+                    options => options.ConnectionString = applicationInsights))
+                .WithMetrics(metrics => metrics.AddAzureMonitorMetricExporter(
+                    options => options.ConnectionString = applicationInsights));
+
+            builder.Logging.AddOpenTelemetry(logging => logging.AddAzureMonitorLogExporter(
+                options => options.ConnectionString = applicationInsights));
         }
 
         return builder;
