@@ -78,6 +78,29 @@ def configured_directories():
     return areas
 
 
+def negated_patterns():
+    """Any pattern starting with "!", which must not appear in the filter file.
+
+    dorny/paths-filter's default `some` quantifier treats a negated pattern as a pattern in its
+    own right, matching every file that does *not* match it, rather than as an exclusion. A
+    single `!**/*.md` entry therefore makes its area match every code change in the repository,
+    and the filtering quietly stops happening. That shipped once; this stops it shipping twice.
+    """
+    found, area = [], None
+    with open(FILTERS, encoding="utf-8") as handle:
+        for raw in handle:
+            line = raw.split("#", 1)[0].rstrip()
+            if not line.strip():
+                continue
+            if not line.startswith((" ", "	", "-")) and line.rstrip().endswith(":"):
+                area = line.strip()[:-1]
+            elif area is not None and line.strip().startswith("-"):
+                pattern = line.strip().lstrip("-").strip().strip("'\"")
+                if pattern.startswith("!"):
+                    found.append((area, pattern))
+    return found
+
+
 def main():
     refs = project_references()
     if not refs:
@@ -86,6 +109,13 @@ def main():
     configured = configured_directories()
 
     problems = []
+    for area, pattern in negated_patterns():
+        problems.append(
+            "area '%s' has the negated pattern \"%s\". Under dorny/paths-filter's default "
+            "quantifier that matches every file which does NOT match it, so the area would "
+            "trigger on any change at all. Delete it; documentation-only pushes are already "
+            "handled by paths-ignore on the workflow trigger." % (area, pattern))
+
     for area, roots in AREA_ROOTS.items():
         missing_roots = [r for r in roots if r not in refs]
         if missing_roots:
