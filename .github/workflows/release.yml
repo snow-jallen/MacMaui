@@ -200,12 +200,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-
-      - name: Install MAUI Windows workload
-        run: dotnet workload install maui-windows
+      # No setup-dotnet here on purpose. The windows-latest image ships a .NET 10 SDK with the
+      # maui-windows workload preinstalled by Visual Studio; a separately installed SDK cannot
+      # see those packs and spends 4 to 5 minutes downloading them again.
+      - name: Use the image's preinstalled MAUI workload
+        shell: pwsh
+        run: |
+          dotnet --version
+          $workloads = dotnet workload list
+          $workloads
+          if (-not ($workloads | Select-String -SimpleMatch 'maui-windows')) {
+            Write-Host 'maui-windows is not preinstalled on this image; installing.'
+            dotnet workload install maui-windows
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Publish unpackaged Windows app
         shell: pwsh
