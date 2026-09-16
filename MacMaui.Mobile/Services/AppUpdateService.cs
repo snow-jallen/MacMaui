@@ -21,9 +21,21 @@ namespace MacMaui.Mobile.Services;
 /// </summary>
 public sealed class AppUpdateService(ILogger<AppUpdateService> logger)
 {
+    /// <summary>
+    /// How often the app looks for a new version while it is running.
+    ///
+    /// Six hours is deliberately unhurried. Velopack reads the feed through the GitHub releases
+    /// API, which allows 60 requests an hour per IP address to anonymous callers. A classroom
+    /// shares one address, so a class of thirty checking every fifteen minutes would be 120
+    /// requests an hour and updates would start failing for everyone. At this interval a full
+    /// class uses a small fraction of the budget.
+    /// </summary>
+    public static readonly TimeSpan CheckInterval = TimeSpan.FromHours(6);
+
 #if WINDOWS
     private UpdateManager? _manager;
     private UpdateInfo? _pending;
+    private int _watching;
 #endif
 
     /// <summary>True when this build can update itself in place.</summary>
@@ -78,6 +90,45 @@ public sealed class AppUpdateService(ILogger<AppUpdateService> logger)
 #else
         await Task.CompletedTask;
         return null;
+#endif
+    }
+
+    /// <summary>
+    /// Checks for a new version every <see cref="CheckInterval"/> until cancelled, calling
+    /// <paramref name="onUpdateAvailable"/> with the version whenever one appears. Safe to call
+    /// more than once; only the first call starts a loop.
+    /// </summary>
+    public Task WatchForUpdatesAsync(
+        Func<string, Task> onUpdateAvailable, CancellationToken cancellationToken = default)
+    {
+#if WINDOWS
+        if (Interlocked.Exchange(ref _watching, 1) == 1)
+        {
+            return Task.CompletedTask;
+        }
+
+        return Task.Run(async () =>
+        {
+            // Spread clients out. Without this every copy started by a lab login script would
+            // hit the feed in the same second, which is exactly the burst the rate limit
+            // punishes. Up to ten minutes is small against a six hour period and plenty to
+            // break up the convoy.
+            var jitter = TimeSpan.FromSeconds(Random.Shared.Next(0, 600));
+            using var timer = new PeriodicTimer(CheckInterval + jitter);
+
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                var available = await CheckForUpdateAsync(cancellationToken);
+                if (available is not null)
+                {
+                    await onUpdateAvailable(available);
+                }
+            }
+        }, cancellationToken);
+#else
+        _ = onUpdateAvailable;
+        _ = cancellationToken;
+        return Task.CompletedTask;
 #endif
     }
 

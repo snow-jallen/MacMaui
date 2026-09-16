@@ -19,7 +19,7 @@ builder.AddProject<Projects.MacMaui_Web>("webfrontend")
 // 10-tunnel-per-account cap for 20-30 days. Pinning also avoids the "already exists, but
 // then reported it was not found" inconsistent-state error, whose own recovery advice is
 // to supply an explicit tunnel ID.
-var mobileApiTunnel = builder.AddDevTunnel("mobile-api", tunnelId: "mobile-api-225546")
+var mobileApiTunnel = builder.AddDevTunnel("mobile-api", tunnelId: "mobile-api-3")
     .WithAnonymousAccess()
     .WithReference(apiService.GetEndpoint("https"));
 

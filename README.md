@@ -118,7 +118,8 @@ open **Actions > Release > Run workflow** and type one.
 ## Notes
 
 - The Windows download is a Velopack installer. Run it once and the app updates itself from
-  this repository's releases: it checks on startup and offers the new version. That is why the
+  this repository's releases: it checks at startup, again every six hours, and on demand from
+  the **Check for updates** button. That is why the
   repository is public, since a private release feed would mean shipping a GitHub token inside
   the app. .NET MAUI has no ClickOnce equivalent, so without Velopack the desktop build could
   only be replaced by hand.
@@ -126,6 +127,11 @@ open **Actions > Release > Run workflow** and type one.
   runtime when a machine lacks it. That halves the download to about 53 MB. The Windows App SDK
   still travels inside the app, because Velopack can install the .NET runtime but has no
   installer for the App SDK.
+- Six hours is chosen for the update interval rather than something snappier because Velopack
+  reads the feed through the GitHub releases API, which allows 60 requests an hour per IP
+  address anonymously. A class shares one address, so frequent polling would exhaust that for
+  everyone. Each client also waits a random extra few minutes so copies started together do not
+  all check at once. For a demo, use the button.
 - The installer is unsigned, so Windows SmartScreen warns on first run. Removing that warning
   needs a code-signing certificate; `vpk pack` accepts signing parameters when you have one.
 - Free-tier App Service sleeps after 20 idle minutes; the first request afterwards takes

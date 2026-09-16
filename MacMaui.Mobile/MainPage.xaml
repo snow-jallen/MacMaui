@@ -8,7 +8,7 @@
 
     <Grid Padding="24"
           RowSpacing="16"
-          RowDefinitions="Auto,Auto,Auto,Auto,*">
+          RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
 
         <!-- "MacMaui" is the template's sourceName, so this shows the name the app was
              generated with, e.g. Public3 or Demo5. -->
@@ -82,6 +82,19 @@
                 </DataTemplate>
             </CollectionView.ItemTemplate>
         </CollectionView>
+
+        <!-- Windows only; hidden elsewhere from code-behind, since iOS updates through
+             TestFlight and Android through a new APK. Visible so a demo does not have to wait
+             for the background check to come round. -->
+        <Button x:Name="CheckUpdatesButton"
+                Grid.Row="5"
+                Text="Check for updates"
+                FontSize="13"
+                HeightRequest="36"
+                HorizontalOptions="Center"
+                IsVisible="False"
+                SemanticProperties.Hint="Asks whether a newer version of this app is available"
+                Clicked="OnCheckUpdatesClicked" />
 
     </Grid>
 
