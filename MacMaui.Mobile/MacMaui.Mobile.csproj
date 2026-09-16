@@ -77,6 +77,34 @@
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>
 
+	<!-- Windows only. Velopack gives the unpackaged desktop build an installer and background
+	     auto-update, which .NET MAUI has no equivalent of (there is no ClickOnce here). The
+	     other platforms update through their stores: TestFlight on iOS, a new APK on Android. -->
+	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+		<PackageReference Include="Velopack" Version="1.2.0" />
+	</ItemGroup>
+
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+		<!-- Take over the entry point so Velopack runs before any UI. Its install and update
+		     hooks re-run the executable and must finish before WinUI starts, which is why the
+		     generated Main will not do. See Platforms/Windows/Program.cs.
+		     Set UseCustomWindowsEntryPoint=false to fall back to the generated Main, which is
+		     useful for isolating a startup problem. -->
+		<UseCustomWindowsEntryPoint Condition="'$(UseCustomWindowsEntryPoint)' == ''">true</UseCustomWindowsEntryPoint>
+		<DefineConstants Condition="'$(UseCustomWindowsEntryPoint)' == 'true'">$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+		<!-- Where the app looks for updates. A public GitHub repository needs no credentials;
+		     override with -p:UpdateFeedUrl=... to publish from somewhere else. -->
+		<UpdateFeedUrl Condition="'$(UpdateFeedUrl)' == ''">https://github.com/snow-jallen/MacMaui</UpdateFeedUrl>
+	</PropertyGroup>
+
+	<ItemGroup Condition="'$(UseCustomWindowsEntryPoint)' != 'true'">
+		<Compile Remove="Platforms\Windows\Program.cs" />
+	</ItemGroup>
+
+	<ItemGroup Condition="'$(UpdateFeedUrl)' != ''">
+		<AssemblyMetadata Include="UpdateFeedUrl" Value="$(UpdateFeedUrl)" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />

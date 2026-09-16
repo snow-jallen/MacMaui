@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using MacMaui.ClientLogic;
+using MacMaui.Mobile.Services;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -46,6 +47,7 @@ public static class MauiProgram
 			.WithMetrics(metrics => metrics.AddMeter(Telemetry.MeterName));
 
 		builder.Services.AddSingleton<Telemetry>();
+		builder.Services.AddSingleton<AppUpdateService>();
 
 		builder.Services.AddHttpClient<IWeatherApiClient, WeatherApiClient>(client =>
 		{

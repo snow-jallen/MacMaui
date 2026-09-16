@@ -10,8 +10,12 @@
 # publishes a release, and a change to both does both. Documentation never triggers anything.
 #
 # Android and Windows are deliberately not split from each other. They build from the same
-# project, so a release carrying a fresh APK beside a stale Windows zip would be worse than
+# project, so a release carrying a fresh APK beside a stale Windows build would be worse than
 # one that took four extra minutes.
+#
+# The Windows download is a Velopack installer, and the update packages beside it are the feed
+# the installed app polls at startup. MAUI has no ClickOnce, so this is what makes the desktop
+# build self-updating.
 #
 # One-time setup: scripts/azure-bootstrap.ps1 creates the Azure resources and stores the
 # secrets and variables this file reads. See README.md.
@@ -282,15 +286,54 @@ jobs:
             --output "$env:RUNNER_TEMP/windows"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Velopack turns the published folder into an installer plus the update feed the app
+      # reads at startup. MAUI has no ClickOnce equivalent, so without this the desktop build
+      # can only ever be replaced by hand.
+      - name: Install Velopack
+        shell: pwsh
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      - name: Fetch the previous release
+        shell: pwsh
+        # Lets Velopack diff against the last version and emit a small delta package, so
+        # returning users download a fraction of the full app. There is nothing to fetch for
+        # the first release, and a missing feed must not fail the build.
+        continue-on-error: true
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/feed" | Out-Null
+          vpk download github `
+            --repoUrl "https://github.com/${{ github.repository }}" `
+            --outputDir "$env:RUNNER_TEMP/feed"
+
+      - name: Package with Velopack
+        shell: pwsh
+        run: |
+          vpk pack `
+            --packId MacMaui `
+            --packVersion "$env:DISPLAY_VERSION" `
+            --packDir "$env:RUNNER_TEMP/windows" `
+            --mainExe MacMaui.Mobile.exe `
+            --packTitle "MacMaui" `
+            --packAuthors "Snow College" `
+            --outputDir "$env:RUNNER_TEMP/feed"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # Ship the installer, the update package and the feed index. The portable zip is
+          # left behind deliberately: it duplicates the installer at roughly 95 MB a release,
+          # and the installed build is the one that can update itself.
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path "$env:RUNNER_TEMP/windows/*" `
-            -DestinationPath "dist/MacMaui.Mobile-$env:DISPLAY_VERSION-windows-x64.zip"
-          Get-ChildItem dist
+          Copy-Item "$env:RUNNER_TEMP/feed/*Setup.exe" "dist/MacMaui-$env:DISPLAY_VERSION-windows-Setup.exe"
+          Copy-Item "$env:RUNNER_TEMP/feed/*.nupkg" dist/
+          foreach ($index in 'RELEASES', 'releases.win.json', 'assets.win.json') {
+            $path = Join-Path $env:RUNNER_TEMP "feed/$index"
+            if (Test-Path $path) { Copy-Item $path dist/ }
+          }
+          Get-ChildItem dist | Select-Object Name, @{n='MB';e={[int]($_.Length/1MB)}}
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: dist/*.zip
+          path: dist/*
           if-no-files-found: error
 
   release:
@@ -330,5 +373,5 @@ jobs:
             | Download | Install |
             |---|---|
             | `MacMaui.Mobile-${{ needs.version.outputs.display }}-android.apk` | Copy to an Android device and open it (allow installs from this source). |
-            | `MacMaui.Mobile-${{ needs.version.outputs.display }}-windows-x64.zip` | Extract anywhere and run `MacMaui.Mobile.exe`. |
+            | `MacMaui-${{ needs.version.outputs.display }}-windows-Setup.exe` | Run it. The app updates itself from this page after that. |
             | iOS | TestFlight, built by Xcode Cloud from the same commit. |
