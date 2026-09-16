@@ -8,8 +8,13 @@
 #                                   project references, so adding a project cannot silently
 #                                   stop triggering builds.
 #
-# Keep every entry in the form `Directory/**`; the guard and the Xcode Cloud script both
-# assume that shape. Markdown is excluded everywhere, so documentation never triggers a build.
+# Keep every entry in the form `Directory/**`, plus the two CI files below; the guard and the
+# Xcode Cloud script both assume that shape and ignore anything else.
+#
+# No "!" exclusions here. Under dorny/paths-filter's default `some` quantifier a negated pattern
+# is not an exclusion: `!**/*.md` matches every file that is *not* Markdown, so adding it made
+# every area match every code change and the filters did nothing. Documentation-only pushes are
+# already handled by paths-ignore on the workflow trigger.
 
 # MacMaui.ApiService and everything it references, plus its tests.
 api:
@@ -17,7 +22,7 @@ api:
   - 'MacMaui.ServiceDefaults/**'
   - 'MacMaui.ApiTests/**'
   - '.github/workflows/release.yml'
-  - '!**/*.md'
+  - '.github/path-filters.yml'
 
 # MacMaui.Mobile and everything it references, plus its tests. Shared by the Android, Windows
 # and iOS builds.
@@ -27,9 +32,8 @@ maui:
   - 'MacMaui.MauiServiceDefaults/**'
   - 'MacMaui.ClientTests/**'
   - '.github/workflows/release.yml'
-  - '!**/*.md'
+  - '.github/path-filters.yml'
 
 # The Xcode Cloud wrapper project and its scripts. Only the iOS build cares about these.
 ios:
   - 'XcodeCloud/**'
-  - '!**/*.md'
