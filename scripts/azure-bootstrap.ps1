@@ -38,11 +38,15 @@ param(
     [string]$AppName = 'macmaui-api',
     # F1 is free (60 CPU-minutes/day, cold starts). B1 is the cheapest always-warm tier.
     [string]$Sku = 'F1',
-    [string]$WorkspaceName = 'macmaui-logs',
-    [string]$InsightsName = 'macmaui-insights',
-    # GB per day of telemetry before ingestion stops until tomorrow. Azure Monitor includes
-    # 5 GB per month free, so this is a guard rail rather than an expected cost.
-    [int]$DailyCapGb = 1,
+    # OpenObserve: one container holding logs, traces and metrics, reachable over OTLP.
+    [string]$EnvironmentName = 'macmaui-env',
+    [string]$OpenObserveName = 'macmaui-otel',
+    [string]$OpenObserveTag = 'v0.20.3',
+    [string]$OpenObserveEmail = 'admin@example.com',
+    # Globally unique, lower case, 3-24 characters. Holds the telemetry share.
+    [string]$StorageName = 'macmauitelemetry',
+    [string]$ShareName = 'openobserve-data',
+    [int]$RetentionDays = 30,
     # owner/name. Defaults to the repository the current directory is a clone of.
     [string]$Repo,
     # GitHub environment the deploy job runs in; must match release.yml.
@@ -94,52 +98,129 @@ Invoke-Az webapp update -g $ResourceGroup -n $AppName --https-only true -o none
 $hostName = (Invoke-Az webapp show -g $ResourceGroup -n $AppName --query defaultHostName -o tsv).Trim()
 $apiBaseUrl = "https://$hostName"
 
-# --- Application Insights -------------------------------------------------------------------
-# Where telemetry goes once the app is no longer running under the Aspire dashboard. Without
-# this the OpenTelemetry spans, logs and metrics are produced and then dropped, because the
-# service defaults only export when they are told an endpoint.
-Write-Host "==> Log Analytics workspace $WorkspaceName"
-$workspaceExists = (Invoke-Az monitor log-analytics workspace list -g $ResourceGroup --query "[?name=='$WorkspaceName'] | length(@)" -o tsv).Trim()
-if ($workspaceExists -eq '0') {
-    Invoke-Az monitor log-analytics workspace create -g $ResourceGroup -n $WorkspaceName -l $Location -o none
+# --- OpenObserve -----------------------------------------------------------------------------
+# Where telemetry goes once the app is no longer running under the Aspire dashboard. Without a
+# destination the OpenTelemetry spans, logs and metrics are produced and then dropped, because
+# the service defaults only export when they are told an endpoint.
+#
+# One container, one UI for all three signals, and plain OTLP, so the apps need no vendor SDK:
+# the exporter they already use for the Aspire dashboard is simply pointed somewhere else.
+Write-Host "==> Storage account $StorageName for telemetry persistence"
+$storageExists = (Invoke-Az storage account list -g $ResourceGroup --query "[?name=='$StorageName'] | length(@)" -o tsv).Trim()
+if ($storageExists -eq '0') {
+    Invoke-Az storage account create -g $ResourceGroup -n $StorageName -l $Location `
+        --sku Standard_LRS --kind StorageV2 -o none
 }
-$workspaceId = (Invoke-Az monitor log-analytics workspace show -g $ResourceGroup -n $WorkspaceName --query id -o tsv).Trim()
+$storageKey = (Invoke-Az storage account keys list -g $ResourceGroup -n $StorageName --query "[0].value" -o tsv).Trim()
 
-Write-Host "==> Application Insights $InsightsName"
-if (-not (& az extension show --name application-insights 2>$null)) {
-    Invoke-Az extension add --name application-insights --yes -o none
-}
-$insightsExists = (Invoke-Az monitor app-insights component show -g $ResourceGroup --query "[?name=='$InsightsName'] | length(@)" -o tsv 2>$null)
-if (-not $insightsExists -or $insightsExists.Trim() -eq '0') {
-    Invoke-Az monitor app-insights component create `
-        --app $InsightsName -g $ResourceGroup -l $Location `
-        --workspace $workspaceId --application-type web -o none
-}
-$insightsConnection = (Invoke-Az monitor app-insights component show --app $InsightsName -g $ResourceGroup --query connectionString -o tsv).Trim()
-
-# A daily cap so a runaway loop, or someone else using the ingestion key lifted out of the
-# shipped client, cannot run up a bill. Telemetry past the cap is dropped until the next day.
-Write-Host "==> Daily ingestion cap: $DailyCapGb GB"
-try {
-    Invoke-Az monitor app-insights component billing update --app $InsightsName -g $ResourceGroup --cap $DailyCapGb -o none
-}
-catch {
-    Write-Warning "Could not set the daily cap; set it in the portal under Usage and estimated costs."
+$shareExists = (Invoke-Az storage share exists --name $ShareName --account-name $StorageName --account-key $storageKey --query exists -o tsv).Trim()
+if ($shareExists -ne 'true') {
+    # OpenObserve keeps its parquet files here, so this is what makes telemetry survive a restart.
+    Invoke-Az storage share create --name $ShareName --account-name $StorageName --account-key $storageKey --quota 100 -o none
 }
 
-Write-Host "==> App Service setting APPLICATIONINSIGHTS_CONNECTION_STRING"
-Invoke-Az webapp config appsettings set -g $ResourceGroup -n $AppName `
-    --settings "APPLICATIONINSIGHTS_CONNECTION_STRING=$insightsConnection" -o none
+Write-Host "==> Container Apps environment $EnvironmentName"
+$envExists = (Invoke-Az containerapp env list -g $ResourceGroup --query "[?name=='$EnvironmentName'] | length(@)" -o tsv).Trim()
+if ($envExists -eq '0') {
+    Invoke-Az containerapp env create -g $ResourceGroup -n $EnvironmentName -l $Location -o none
+}
+
+$storageMountExists = (Invoke-Az containerapp env storage list -g $ResourceGroup -n $EnvironmentName --query "[?name=='$ShareName'] | length(@)" -o tsv).Trim()
+if ($storageMountExists -eq '0') {
+    Invoke-Az containerapp env storage set -g $ResourceGroup -n $EnvironmentName `
+        --storage-name $ShareName --azure-file-account-name $StorageName `
+        --azure-file-account-key $storageKey --azure-file-share-name $ShareName `
+        --access-mode ReadWrite -o none
+}
+
+# Generated once and then reused, so re-running this script does not lock the apps out of the
+# backend they were built against.
+# Not Invoke-Az: on a first run the container app does not exist yet and this is expected to
+# fail, which Invoke-Az would turn into a thrown error.
+$existingPassword = (& az containerapp secret show -g $ResourceGroup -n $OpenObserveName --secret-name root-password --query value -o tsv 2>$null)
+if ($LASTEXITCODE -eq 0 -and $existingPassword) {
+    $openObservePassword = ($existingPassword -join '').Trim()
+}
+else {
+    $openObservePassword = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 24 | ForEach-Object { [char]$_ })
+}
+
+Write-Host "==> OpenObserve container app $OpenObserveName"
+$appExists2 = (Invoke-Az containerapp list -g $ResourceGroup --query "[?name=='$OpenObserveName'] | length(@)" -o tsv).Trim()
+if ($appExists2 -eq '0') {
+    Invoke-Az containerapp create -g $ResourceGroup -n $OpenObserveName --environment $EnvironmentName `
+        --image "openobserve/openobserve:$OpenObserveTag" `
+        --target-port 5080 --ingress external `
+        --min-replicas 1 --max-replicas 1 `
+        --cpu 0.5 --memory 1.0Gi `
+        --secrets "root-password=$openObservePassword" `
+        --env-vars "ZO_ROOT_USER_EMAIL=$OpenObserveEmail" "ZO_ROOT_USER_PASSWORD=secretref:root-password" `
+                   "ZO_DATA_DIR=/data" "ZO_COMPACT_DATA_RETENTION_DAYS=$RetentionDays" `
+        -o none
+
+}
+
+# The create command cannot express volumes, so the share is attached afterwards. Done by editing
+# the resource as an object rather than by patching its YAML text: an earlier version used regular
+# expressions on the YAML, silently failed to add volumeMounts, and produced a container that
+# looked configured but still wrote telemetry to an ephemeral disk. JSON is valid YAML, so the
+# --yaml switch accepts the edited object directly.
+$definition = Invoke-Az containerapp show -g $ResourceGroup -n $OpenObserveName -o json | ConvertFrom-Json
+$mounted = $definition.properties.template.containers[0].volumeMounts
+if (-not $mounted -or $mounted.Count -eq 0) {
+    Write-Host "==> Mounting $ShareName at /data"
+    $definition.properties.template | Add-Member -NotePropertyName volumes -NotePropertyValue @(
+        @{ name = 'data'; storageName = $ShareName; storageType = 'AzureFile' }) -Force
+    $definition.properties.template.containers[0] | Add-Member -NotePropertyName volumeMounts -NotePropertyValue @(
+        @{ volumeName = 'data'; mountPath = '/data' }) -Force
+
+    $definitionPath = Join-Path ([IO.Path]::GetTempPath()) "macmaui-openobserve-$([guid]::NewGuid()).json"
+    $definition | ConvertTo-Json -Depth 40 | Set-Content -Path $definitionPath -Encoding utf8
+    try {
+        Invoke-Az containerapp update -g $ResourceGroup -n $OpenObserveName --yaml $definitionPath -o none
+    }
+    finally {
+        Remove-Item $definitionPath -ErrorAction SilentlyContinue
+    }
+}
+
+# Fail loudly rather than leave telemetry on a disk that disappears with the container.
+$mountCheck = (Invoke-Az containerapp show -g $ResourceGroup -n $OpenObserveName --query "properties.template.containers[0].volumeMounts[0].mountPath" -o tsv).Trim()
+if ($mountCheck -ne '/data') {
+    throw "OpenObserve has no /data volume mount, so telemetry would not survive a restart."
+}
+
+$openObserveHost = (Invoke-Az containerapp show -g $ResourceGroup -n $OpenObserveName --query "properties.configuration.ingress.fqdn" -o tsv).Trim()
+$openObserveUrl = "https://$openObserveHost"
+# The OTLP/HTTP exporter appends /v1/traces, /v1/metrics and /v1/logs to this base.
+$otlpEndpoint = "$openObserveUrl/api/default"
+
+# Compose the basic auth header here rather than in the apps. OTEL_EXPORTER_OTLP_HEADERS is a
+# standard OpenTelemetry variable that every SDK reads on its own, so doing the base64 once at
+# provisioning time means neither the API nor the client needs a line of code for authentication.
+$otlpHeaders = "Authorization=Basic " + [Convert]::ToBase64String(
+    [Text.Encoding]::UTF8.GetBytes("${OpenObserveEmail}:${openObservePassword}"))
+
+Write-Host "==> App Service OTLP settings"
+Invoke-Az webapp config appsettings set -g $ResourceGroup -n $AppName --settings `
+    "OTEL_EXPORTER_OTLP_ENDPOINT=$otlpEndpoint" `
+    "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf" `
+    "OTEL_EXPORTER_OTLP_HEADERS=$otlpHeaders" -o none
+
+# The Application Insights setting would otherwise keep a second exporter alive alongside this one.
+Invoke-Az webapp config appsettings delete -g $ResourceGroup -n $AppName `
+    --setting-names APPLICATIONINSIGHTS_CONNECTION_STRING -o none 2>$null
 
 Write-Host "==> GitHub variables"
 & gh variable set AZURE_WEBAPP_NAME --repo $Repo --body $AppName
 & gh variable set AZURE_RESOURCE_GROUP --repo $Repo --body $ResourceGroup
 & gh variable set API_BASE_URL --repo $Repo --body $apiBaseUrl
 
-# A secret rather than a variable so it is masked in build logs. It is not truly secret once
-# the desktop and mobile builds embed it, but there is no reason to print it either.
-Write-Host "==> GitHub secret APPINSIGHTS_CONNECTION_STRING"
-$insightsConnection | & gh secret set APPINSIGHTS_CONNECTION_STRING --repo $Repo
+# Secrets rather than variables so they are masked in build logs. They are not truly secret once
+# the desktop and mobile builds embed them, but there is no reason to print them either.
+Write-Host "==> GitHub secrets for the telemetry backend"
+$otlpEndpoint | & gh secret set OTLP_ENDPOINT --repo $Repo
+$otlpHeaders | & gh secret set OTLP_HEADERS --repo $Repo
 
 if ($UsePublishProfile) {
     Write-Host "==> Publish profile -> secret AZURE_WEBAPP_PUBLISH_PROFILE"
@@ -203,10 +284,15 @@ else {
 
 Write-Host ''
 Write-Host 'Done.'
-Write-Host "  API_BASE_URL = $apiBaseUrl"
-Write-Host "  Application Insights = $InsightsName (daily cap $DailyCapGb GB)"
+Write-Host "  API_BASE_URL  = $apiBaseUrl"
+Write-Host "  Telemetry UI  = $openObserveUrl"
+Write-Host "  OTLP endpoint = $otlpEndpoint"
+Write-Host "  Sign in as    $OpenObserveEmail"
+Write-Host "  Password      $openObservePassword"
 Write-Host ''
 Write-Host 'Next:'
-Write-Host "  1. Xcode Cloud workflow > Environment: add API_BASE_URL = $apiBaseUrl"
-Write-Host '  2. git tag v1.0.0 && git push --tags     (or run the Release workflow from the Actions tab)'
+Write-Host "  1. Xcode Cloud workflow > Environment, add both, the second marked secret:"
+Write-Host "       OTLP_ENDPOINT = $otlpEndpoint"
+Write-Host "       OTLP_HEADERS  = $otlpHeaders"
+Write-Host '  2. git push origin main    (every push deploys)'
 exit 0   # the optional `gh secret delete` above may have set a nonzero exit code

@@ -1,5 +1,4 @@
-﻿using Azure.Monitor.OpenTelemetry.Exporter;
-using System.Reflection;
+﻿using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -108,23 +107,10 @@ public static class Extensions
             builder.Services.AddOpenTelemetry().UseOtlpExporter();
         }
 
-        // Released builds are not launched by Aspire, so there is no dashboard listening and the
-        // OTLP endpoint above is unset. The connection string is baked in at build time instead
-        // (see ApplicationInsightsConnectionString in MacMaui.Mobile.csproj), which is how a
-        // shipped app reports at all. Left unset, the app simply reports nothing.
-        var applicationInsights = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
-        if (!string.IsNullOrWhiteSpace(applicationInsights))
-        {
-            builder.Services.AddOpenTelemetry()
-                .WithTracing(tracing => tracing.AddAzureMonitorTraceExporter(
-                    options => options.ConnectionString = applicationInsights))
-                .WithMetrics(metrics => metrics.AddAzureMonitorMetricExporter(
-                    options => options.ConnectionString = applicationInsights));
-
-            builder.Logging.AddOpenTelemetry(logging => logging.AddAzureMonitorLogExporter(
-                options => options.ConnectionString = applicationInsights));
-        }
-
+        // Nothing else is needed. Under Aspire the AppHost sets the endpoint and telemetry goes to
+        // the dashboard; in a released build MauiProgram supplies the endpoint and headers for
+        // OpenObserve, baked in at build time. Either way it is the same OTLP exporter above, so
+        // a released app needs no vendor SDK and no extra code path.
         return builder;
     }
 }

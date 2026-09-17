@@ -1,5 +1,4 @@
-﻿using Azure.Monitor.OpenTelemetry.AspNetCore;
-using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -88,19 +87,10 @@ public static class Extensions
             builder.Services.AddOpenTelemetry().UseOtlpExporter();
         }
 
-        // Deployed, there is no Aspire dashboard, so the same signals go to Application Insights
-        // instead. The connection string arrives as an App Service application setting. When it
-        // is absent, which is the case on a development machine running under Aspire, this does
-        // nothing and the OTLP exporter above carries the telemetry to the dashboard.
-        var applicationInsights = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
-        if (!string.IsNullOrWhiteSpace(applicationInsights))
-        {
-            builder.Services.AddOpenTelemetry().UseAzureMonitor(options =>
-            {
-                options.ConnectionString = applicationInsights;
-            });
-        }
-
+        // Nothing else is needed for production. OTLP is the only exporter: under Aspire the
+        // AppHost supplies the endpoint and telemetry goes to the dashboard, and once deployed
+        // App Service supplies the endpoint and headers for OpenObserve. Same protocol, same
+        // code path, no vendor SDK either side.
         return builder;
     }
 

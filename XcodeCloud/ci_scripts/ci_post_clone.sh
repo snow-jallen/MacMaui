@@ -13,11 +13,12 @@
 # Environment variables to set on the Xcode Cloud workflow (Environment section):
 #   API_BASE_URL     Where the deployed API lives, e.g. https://macmaui-api.azurewebsites.net
 #                    Optional: falls back to the committed XcodeCloud/api-base-url.txt.
-#   APPINSIGHTS_CONNECTION_STRING
-#                    Application Insights destination for the app's telemetry. Must be set here,
-#                    marked secret, because the App Store Connect API cannot write Xcode Cloud
-#                    environment variables and this repository is public, so unlike the API
-#                    address it is not committed. Without it the iOS build reports nothing.
+#   OTLP_ENDPOINT    OpenObserve OTLP address, e.g. https://<app>.azurecontainerapps.io/api/default
+#   OTLP_HEADERS     Authorization=Basic <base64 of user:password>
+#                    Both must be set here, the second marked secret, because the App Store
+#                    Connect API cannot write Xcode Cloud environment variables and this
+#                    repository is public, so unlike the API address they are not committed.
+#                    Without them the iOS build reports no telemetry.
 #   DOTNET_CHANNEL   .NET SDK channel to install (default 10.0)
 
 set -eu
@@ -69,12 +70,14 @@ else
 fi
 
 # --- Telemetry destination. Not committed: see the header. -----------------------------------
-APPINSIGHTS_CONNECTION_STRING="${APPINSIGHTS_CONNECTION_STRING:-}"
-if [ -z "$APPINSIGHTS_CONNECTION_STRING" ]; then
-  echo "warning: APPINSIGHTS_CONNECTION_STRING is not set on this workflow, so this build will" >&2
-  echo "warning: send no telemetry. Add it under Environment in the Xcode Cloud workflow." >&2
+OTLP_ENDPOINT="${OTLP_ENDPOINT:-}"
+OTLP_HEADERS="${OTLP_HEADERS:-}"
+if [ -z "$OTLP_ENDPOINT" ]; then
+  echo "warning: OTLP_ENDPOINT is not set on this workflow, so this build will send no" >&2
+  echo "warning: telemetry. Add OTLP_ENDPOINT and OTLP_HEADERS under Environment in the" >&2
+  echo "warning: Xcode Cloud workflow." >&2
 else
-  log "Telemetry: Application Insights configured"
+  log "Telemetry: $OTLP_ENDPOINT"
 fi
 
 # --- .NET SDK -------------------------------------------------------------------------------
@@ -116,7 +119,8 @@ dotnet build "$MAUI_PROJECT" \
   --framework "$TFM" \
   -p:SingleTargetFramework="$TFM" \
   -p:ApiBaseUrl="$API_BASE_URL" \
-  -p:ApplicationInsightsConnectionString="$APPINSIGHTS_CONNECTION_STRING" \
+  -p:OtlpEndpoint="$OTLP_ENDPOINT" \
+  -p:OtlpHeaders="$OTLP_HEADERS" \
   -p:CodesignKey=- \
   -p:CodesignRequireProvisioningProfile=false \
   -p:ApplicationVersion="$BUILD_NUMBER" \

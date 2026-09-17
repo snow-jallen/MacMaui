@@ -118,12 +118,14 @@
 	</ItemGroup>
 
 	<!-- Where a released build sends its telemetry. Same mechanism as ApiBaseUrl: there is no
-	     Aspire dashboard outside development, so the connection string travels in the binary.
-	     Note this means anyone with the app can read it and send data to the resource, which is
-	     why the bootstrap script sets a daily ingestion cap.
-	         dotnet publish -p:ApplicationInsightsConnectionString="InstrumentationKey=..." -->
-	<ItemGroup Condition="'$(ApplicationInsightsConnectionString)' != ''">
-		<AssemblyMetadata Include="ApplicationInsightsConnectionString" Value="$(ApplicationInsightsConnectionString)" />
+	     Aspire dashboard outside development, so the OTLP destination travels in the binary.
+	     Anyone with the app can read these, which is why OpenObserve keeps a fixed retention
+	     window and sits behind an account you can rotate.
+	         dotnet publish -p:OtlpEndpoint=https://.../api/default \
+	                        -p:OtlpHeaders="Authorization=Basic ..." -->
+	<ItemGroup Condition="'$(OtlpEndpoint)' != ''">
+		<AssemblyMetadata Include="OtlpEndpoint" Value="$(OtlpEndpoint)" />
+		<AssemblyMetadata Include="OtlpHeaders" Value="$(OtlpHeaders)" />
 	</ItemGroup>
 
 	<ItemGroup>

@@ -40,14 +40,20 @@ public static class MauiProgram
 			});
 		}
 
-		// Telemetry destination for a released build, read the same way. AddServiceDefaults
-		// below picks this up out of configuration and attaches the Azure Monitor exporters.
-		var applicationInsights = metadata.GetValueOrDefault("ApplicationInsightsConnectionString");
-		if (!string.IsNullOrWhiteSpace(applicationInsights))
+		// Telemetry destination for a released build, read the same way. These are the standard
+		// OpenTelemetry variables, so setting them here is all it takes: the exporter that already
+		// serves the Aspire dashboard picks them up and reports to OpenObserve instead. Under
+		// Aspire they are absent and the AppHost's own values, added by AddServiceDefaults below,
+		// take over.
+		var otlpEndpoint = metadata.GetValueOrDefault("OtlpEndpoint");
+		if (!string.IsNullOrWhiteSpace(otlpEndpoint))
 		{
 			builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
 			{
-				["APPLICATIONINSIGHTS_CONNECTION_STRING"] = applicationInsights,
+				["OTEL_EXPORTER_OTLP_ENDPOINT"] = otlpEndpoint,
+				// OpenObserve takes OTLP over HTTP; the exporter's default is gRPC.
+				["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf",
+				["OTEL_EXPORTER_OTLP_HEADERS"] = metadata.GetValueOrDefault("OtlpHeaders"),
 			});
 		}
 
