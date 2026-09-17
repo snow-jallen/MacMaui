@@ -51,8 +51,9 @@ Xcode Cloud environment variables.
 
 Under `aspire start` the app and the API report to the Aspire dashboard, unchanged. Deployed, there
 is no dashboard, so the same OTLP exporters point at a small **OpenObserve** container instead
-(`macmaui-otel` in `macmaui-rg`): one service holding logs, traces and metrics, with one UI and a
-30 day retention window on an Azure Files share.
+(`macmaui-otel` in `macmaui-rg`): one service holding logs, traces and metrics, with one UI.
+Telemetry is held on the container's own disk and does not survive a restart, which
+[docs/telemetry.md](docs/telemetry.md) explains along with the options if that matters.
 
 No vendor SDK is involved on either side. The server gets the endpoint from its app settings; the
 client builds have it baked in, the same way they carry the API address.

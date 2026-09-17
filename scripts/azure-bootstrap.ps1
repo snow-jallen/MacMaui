@@ -43,9 +43,6 @@ param(
     [string]$OpenObserveName = 'macmaui-otel',
     [string]$OpenObserveTag = 'v0.20.3',
     [string]$OpenObserveEmail = 'admin@example.com',
-    # Globally unique, lower case, 3-24 characters. Holds the telemetry share.
-    [string]$StorageName = 'macmauitelemetry',
-    [string]$ShareName = 'openobserve-data',
     [int]$RetentionDays = 30,
     # owner/name. Defaults to the repository the current directory is a clone of.
     [string]$Repo,
@@ -105,32 +102,23 @@ $apiBaseUrl = "https://$hostName"
 #
 # One container, one UI for all three signals, and plain OTLP, so the apps need no vendor SDK:
 # the exporter they already use for the Aspire dashboard is simply pointed somewhere else.
-Write-Host "==> Storage account $StorageName for telemetry persistence"
-$storageExists = (Invoke-Az storage account list -g $ResourceGroup --query "[?name=='$StorageName'] | length(@)" -o tsv).Trim()
-if ($storageExists -eq '0') {
-    Invoke-Az storage account create -g $ResourceGroup -n $StorageName -l $Location `
-        --sku Standard_LRS --kind StorageV2 -o none
-}
-$storageKey = (Invoke-Az storage account keys list -g $ResourceGroup -n $StorageName --query "[0].value" -o tsv).Trim()
-
-$shareExists = (Invoke-Az storage share exists --name $ShareName --account-name $StorageName --account-key $storageKey --query exists -o tsv).Trim()
-if ($shareExists -ne 'true') {
-    # OpenObserve keeps its parquet files here, so this is what makes telemetry survive a restart.
-    Invoke-Az storage share create --name $ShareName --account-name $StorageName --account-key $storageKey --quota 100 -o none
-}
-
+# No volume is mounted, and that is deliberate rather than an omission.
+#
+# OpenObserve keeps its metadata in SQLite, and SQLite cannot run on an Azure Files SMB share:
+# the container starts, fails to take a write lock, and dies with
+#   "attempt to write a readonly database"
+#   "db init failed: pool timed out while waiting for an open connection"
+# Container Apps offers only Azure Files, and its NFS flavour, which SQLite could use, needs a
+# premium account reachable solely from a virtual network, so the environment would have to be
+# rebuilt inside one.
+#
+# The consequence: telemetry lives on the replica's own disk and is lost if the container
+# restarts. Fine for watching what an app is doing now, no good for looking at last week. See
+# docs/telemetry.md for the options if that stops being acceptable.
 Write-Host "==> Container Apps environment $EnvironmentName"
 $envExists = (Invoke-Az containerapp env list -g $ResourceGroup --query "[?name=='$EnvironmentName'] | length(@)" -o tsv).Trim()
 if ($envExists -eq '0') {
     Invoke-Az containerapp env create -g $ResourceGroup -n $EnvironmentName -l $Location -o none
-}
-
-$storageMountExists = (Invoke-Az containerapp env storage list -g $ResourceGroup -n $EnvironmentName --query "[?name=='$ShareName'] | length(@)" -o tsv).Trim()
-if ($storageMountExists -eq '0') {
-    Invoke-Az containerapp env storage set -g $ResourceGroup -n $EnvironmentName `
-        --storage-name $ShareName --azure-file-account-name $StorageName `
-        --azure-file-account-key $storageKey --azure-file-share-name $ShareName `
-        --access-mode ReadWrite -o none
 }
 
 # Generated once and then reused, so re-running this script does not lock the apps out of the
@@ -158,36 +146,6 @@ if ($appExists2 -eq '0') {
                    "ZO_DATA_DIR=/data" "ZO_COMPACT_DATA_RETENTION_DAYS=$RetentionDays" `
         -o none
 
-}
-
-# The create command cannot express volumes, so the share is attached afterwards. Done by editing
-# the resource as an object rather than by patching its YAML text: an earlier version used regular
-# expressions on the YAML, silently failed to add volumeMounts, and produced a container that
-# looked configured but still wrote telemetry to an ephemeral disk. JSON is valid YAML, so the
-# --yaml switch accepts the edited object directly.
-$definition = Invoke-Az containerapp show -g $ResourceGroup -n $OpenObserveName -o json | ConvertFrom-Json
-$mounted = $definition.properties.template.containers[0].volumeMounts
-if (-not $mounted -or $mounted.Count -eq 0) {
-    Write-Host "==> Mounting $ShareName at /data"
-    $definition.properties.template | Add-Member -NotePropertyName volumes -NotePropertyValue @(
-        @{ name = 'data'; storageName = $ShareName; storageType = 'AzureFile' }) -Force
-    $definition.properties.template.containers[0] | Add-Member -NotePropertyName volumeMounts -NotePropertyValue @(
-        @{ volumeName = 'data'; mountPath = '/data' }) -Force
-
-    $definitionPath = Join-Path ([IO.Path]::GetTempPath()) "macmaui-openobserve-$([guid]::NewGuid()).json"
-    $definition | ConvertTo-Json -Depth 40 | Set-Content -Path $definitionPath -Encoding utf8
-    try {
-        Invoke-Az containerapp update -g $ResourceGroup -n $OpenObserveName --yaml $definitionPath -o none
-    }
-    finally {
-        Remove-Item $definitionPath -ErrorAction SilentlyContinue
-    }
-}
-
-# Fail loudly rather than leave telemetry on a disk that disappears with the container.
-$mountCheck = (Invoke-Az containerapp show -g $ResourceGroup -n $OpenObserveName --query "properties.template.containers[0].volumeMounts[0].mountPath" -o tsv).Trim()
-if ($mountCheck -ne '/data') {
-    throw "OpenObserve has no /data volume mount, so telemetry would not survive a restart."
 }
 
 $openObserveHost = (Invoke-Az containerapp show -g $ResourceGroup -n $OpenObserveName --query "properties.configuration.ingress.fqdn" -o tsv).Trim()

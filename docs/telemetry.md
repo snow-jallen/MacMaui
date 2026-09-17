@@ -93,18 +93,32 @@ ORDER BY n DESC
 
 Useful for seeing whether people have taken the Velopack update.
 
-## Cost and retention
+## Cost, retention, and the one real limitation
 
-Roughly 10 to 15 dollars a month: one Container Apps replica that has to stay warm to receive
-telemetry, plus a small Azure Files share and its storage account.
+Roughly 10 dollars a month: a single Container Apps replica that has to stay warm to receive
+telemetry.
 
-Telemetry is kept for **30 days** and then compacted away, set by
-`ZO_COMPACT_DATA_RETENTION_DAYS`. Change it with `-RetentionDays` and re-run the bootstrap script.
+**Telemetry does not survive a container restart.** It lives on the replica's own disk, so a
+platform restart, an image update or a configuration change starts the history over. Within a
+session it is complete; across weeks it is not.
 
-Data lives on an Azure Files share mounted at `/data`, so it survives restarts and redeploys of the
-container. The bootstrap script refuses to finish if that mount is missing, because a container
-that looks configured but writes to an ephemeral disk is the failure you would not notice until you
-needed the history.
+That is not an oversight, it is a wall. OpenObserve keeps its metadata in SQLite, and SQLite
+cannot run on an Azure Files SMB share: mounting one makes the container die at startup with
+*"attempt to write a readonly database"*. Container Apps offers only Azure Files, and its NFS
+flavour, which SQLite would tolerate, requires a premium account reachable solely from a virtual
+network, meaning the whole environment has to be rebuilt inside one.
+
+If durable history becomes necessary, the honest options are:
+
+| Option | Cost | Effort |
+|---|---|---|
+| Live with it: fine for demos and live debugging | ~$10/month | none, this is today |
+| Rebuild the environment in a VNet with a premium NFS share | ~$26/month | moderate, new networking |
+| Run OpenObserve on a small VM with a managed disk | ~$20/month | moderate, a VM to maintain |
+| Grafana Cloud free tier, nothing to host | $0 | small, but three sub-systems to learn |
+
+`ZO_COMPACT_DATA_RETENTION_DAYS` is set to 30 days and is the ceiling rather than the
+expectation, since a restart will usually come first.
 
 ## A caveat worth understanding
 
